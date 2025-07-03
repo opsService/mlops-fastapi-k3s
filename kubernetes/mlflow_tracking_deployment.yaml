@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-tracking
+  labels:
+    app: mlflow-tracking
+spec:
+  selector:
+    matchLabels:
+      app: mlflow-tracking
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mlflow-tracking
+    spec:
+      # --- Init Container (MinIO 버킷 자동 생성) 시작 ---
+      initContainers:
+      - name: init-create-mlflow-bucket
+        image: minio/mc:latest # MinIO Client (mc) 도구를 포함한 이미지
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "MinIO 서비스 준비 대기 중..."
+            until mc alias set myminio $MLFLOW_S3_ENDPOINT_URL $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY; do
+              echo "MinIO 아직 준비되지 않았거나 인증 정보가 유효하지 않습니다. 5초 후 재시도..."
+              sleep 5
+            done
+            echo "MinIO alias 설정 완료. 버킷 생성 시작..."
+            mc mb myminio/mlflow-artifacts || { echo "버킷이 이미 존재하거나 생성에 실패했지만 계속 진행합니다..."; }
+            echo "'mlflow-artifacts' 버킷 확인/생성 완료."
+        env:
+          - name: MLFLOW_S3_ENDPOINT_URL
+            value: "http://minio-service:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_USER
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_PASSWORD
+      # --- Init Container 끝 ---
+
+      containers:
+        - name: mlflow-tracking
+          # 당신이 빌드한 MLflow Tracking Server 이미지 (psycopg2-binary 포함)
+          image: localhost:5002/heedong/mlflow-tracking-server:psycopg2-binary
+          command: ["mlflow"]
+          args:
+            - "server"
+            - "--backend-store-uri=postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgresql-service:5432/mlflow_db"
+            - "--default-artifact-root=s3://mlflow-artifacts/"
+            - "--host=0.0.0.0"
+            - "--port=5000"
+            - "--gunicorn-opts" # Gunicorn 옵션 추가
+            - "--timeout 120 --workers 4" # 타임아웃 120초, 워커 4개 설정
+          ports:
+            - containerPort: 5000
+          env:
+            # PostgreSQL 사용자 이름과 비밀번호를 'postgres-secret'에서 가져옴
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+
+            - name: MLFLOW_S3_ENDPOINT_URL # MinIO 엔드포인트 URL
+              value: http://minio-service:9000
+
+            # MinIO 접근 키와 비밀번호를 'minio-secret'에서 가져옴
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "2Gi"  # 요청 메모리 증가
+              cpu: "2"       # 요청 CPU 증가
+            limits:
+              memory: "4Gi"  # 제한 메모리 증가
+              cpu: "4"       # 제한 CPU 증가
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-tracking-service
+spec:
+  selector:
+    app: mlflow-tracking
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP

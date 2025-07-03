@@ -1,0 +1,17 @@
+NEW_INFERENCE_TAG="final-debug-v1"
+sudo nerdctl build -t localhost:5002/heedong/mlflow-inference-server:${NEW_INFERENCE_TAG} -f Dockerfile.inference .
+sudo nerdctl push localhost:5002/heedong/mlflow-inference-server:${NEW_INFERENCE_TAG}
+sudo crictl pull localhost:5002/heedong/mlflow-inference-server:${NEW_INFERENCE_TAG}
+
+sudo nerdctl build -t localhost:5002/heedong/fastapi-mlops-api:latest -f Dockerfile.fastapi .
+sudo nerdctl push localhost:5002/heedong/fastapi-mlops-api:latest
+sudo crictl pull localhost:5002/heedong/fastapi-mlops-api:latest
+
+sudo nerdctl build -t localhost:5002/heedong/mlflow-trainer:latest -f Dockerfile.traincpu .
+sudo nerdctl push localhost:5002/heedong/mlflow-trainer:latest
+sudo crictl pull localhost:5002/heedong/mlflow-trainer:latest
+
+sudo rm -rf /mnt/opsops/data/minio/mlflow-artifacts
+sudo rm -rf /mnt/opsops/data/postgresql/
+sudo mkdir /mnt/opsops/data/postgresql
+sudo chown 999 /mnt/opsops/data/postgresql/

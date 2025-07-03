@@ -1,0 +1,33 @@
+# mlops-fastapi-app/kubernetes/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fastapi-mlops-role
+  namespace: default
+rules:
+- apiGroups: [""] # ""는 코어 API 그룹 (pods, services 등)을 의미합니다.
+  resources: ["pods", "pods/log", "services"] # services에 대한 권한 포함
+  verbs: ["get", "list", "watch", "create", "delete"] # create, delete 권한 추가
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/status"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fastapi-mlops-rolebinding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: fastapi-mlops-sa
+  namespace: default
+roleRef:
+  kind: Role
+  name: fastapi-mlops-role
+  apiGroup: rbac.authorization.k8s.io

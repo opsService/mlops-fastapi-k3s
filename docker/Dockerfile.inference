@@ -1,0 +1,13 @@
+# docker/Dockerfile.inference
+FROM python:3.11-slim-buster
+
+WORKDIR /app
+
+COPY ./requirements/requirements_inference.txt .
+RUN pip install --no-cache-dir -r requirements_inference.txt
+
+COPY app/inference_server.py .
+
+# 서버 실행 명령
+# Flask 앱을 Gunicorn으로 실행하는 표준 방식
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8000", "inference_server:app"]

@@ -1,0 +1,9 @@
+torch
+torchvision
+torchaudio
+mlflow
+scikit-learn
+numpy
+pandas
+matplotlib
+boto3

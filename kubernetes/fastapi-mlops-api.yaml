@@ -1,0 +1,109 @@
+# mlops-fastapi-app/kubernetes/fastapi-mlops-api.yaml
+
+---
+# 4. FastAPI API Deployment
+# FastAPI 애플리케이션을 Kubernetes에 배포합니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-mlops-api
+  labels:
+    app: fastapi-mlops-api
+spec:
+  selector:
+    matchLabels:
+      app: fastapi-mlops-api
+  replicas: 1 # 초기에는 1개 파드로 시작
+  template:
+    metadata:
+      labels:
+        app: fastapi-mlops-api
+    spec:
+      serviceAccountName: fastapi-mlops-sa # 위에서 정의한 ServiceAccount 사용
+
+      containers:
+      - name: fastapi-mlops-container
+        image: localhost:5002/heedong/fastapi-mlops-api:latest # ⭐ 방금 빌드한 FastAPI 이미지 태그와 일치시켜야 합니다.
+        imagePullPolicy: Always # 개발 중에는 Always로 설정하여 항상 최신 이미지를 가져오도록 강제 (프로덕션에서는 IfNotPresent 또는 Never)
+        ports:
+        - containerPort: 8000 # FastAPI가 Uvicorn으로 실행될 포트
+        env:
+        # FastAPI 앱이 Kubernetes 클라이언트에서 사용할 네임스페이스
+        - name: K8S_NAMESPACE
+          value: default
+        # MLflow Tracking Server 주소
+        - name: MLFLOW_TRACKING_URI
+          value: http://mlflow-tracking-service:5000
+        # MinIO 엔드포인트 URL
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: http://minio-service:9000
+        # MinIO 접근 키와 비밀번호 (Secret에서 가져옴)
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_PASSWORD
+        # Spring Boot 콜백 URL (FastAPI가 Spring Boot에 상태 업데이트를 보낼 주소)
+        - name: SPRING_BOOT_CALLBACK_URL
+          value: http://your-spring-boot-service-ip:8080/internal/api/v1/tasks # ⭐ Spring Boot 서비스 주소로 변경 필요!
+        # FastAPI 내부 API Key (FastAPI 라우터에 설정한 X-API-KEY)
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: fastapi-internal-api-key-secret # 이 Secret은 별도로 생성해야 합니다.
+              key: API_KEY
+        # ⭐ 추가: UVICORN_LOG_LEVEL을 DEBUG로 설정
+        - name: UVICORN_LOG_LEVEL
+          value: "debug" # 이 값을 "debug"로 설정하여 상세 로그를 활성화합니다.
+
+        # 추론 서비스 URL (Inference Deployment/Service 생성 후)
+        # 이 변수는 Inference 라우터가 실제 추론 요청을 보낼 때 사용됩니다.
+        # 이 값은 동적 배포에서는 사용되지 않고, _monitor_inference_deployment 함수 내에서 동적으로 계산됩니다.
+        # 따라서 이 값은 그대로 두어도 무방합니다.
+        - name: INFERENCE_SERVICE_URL
+          value: http://mlflow-inference-service:8000 # (추후 생성할) 추론 서비스 이름과 포트
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+# 5. FastAPI API Service
+# FastAPI 애플리케이션을 클러스터 내부에서 접근 가능하도록 서비스로 노출합니다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-mlops-api-service
+  labels:
+    app: fastapi-mlops-api
+spec:
+  selector:
+    app: fastapi-mlops-api
+  ports:
+    - protocol: TCP
+      port: 8000 # 서비스 포트
+      targetPort: 8000 # 컨테이너 내부 포트 (Uvicorn 포트)
+  type: ClusterIP # 클러스터 내부에서만 접근 가능한 타입 (NodePort/LoadBalancer로 외부 노출 가능)

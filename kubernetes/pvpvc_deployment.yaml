@@ -1,0 +1,52 @@
+# minio-pv-pvc.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-pv
+spec:
+  capacity:
+    storage: 300Gi # MinIO 아티팩트 저장에 필요한 용량, 필요에 따라 조정
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  hostPath:
+    path: "/mnt/opsops/data/minio" # K3s 노드에 생성한 디렉토리 경로
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 300Gi # PVC가 요청할 용량
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgresql-pv
+spec:
+  capacity:
+    storage: 100Gi # PostgreSQL 데이터 저장에 필요한 용량, 필요에 따라 조정
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  hostPath:
+    path: "/mnt/opsops/data/postgresql" # K3s 노드에 생성한 디렉토리 경로
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi # PVC가 요청할 용량
+  storageClassName: local-path

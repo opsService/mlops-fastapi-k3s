@@ -1,0 +1,13 @@
+# docker/Dockerfile.traingpu
+# PyTorch 2.7.1, CUDA 12.8, cuDNN 9 런타임 이미지 사용
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+
+WORKDIR /app
+
+COPY ./requirements/requirements_gputrainer.txt .
+RUN pip install --no-cache-dir -r requirements_gputrainer.txt
+
+# COPY train_gpu.py .
+
+# 컨테이너 실행 시 train.py 실행
+# CMD ["python", "train_gpu.py"]

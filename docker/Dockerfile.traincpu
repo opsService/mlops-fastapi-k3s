@@ -1,0 +1,11 @@
+# docker/Dockerfile.traincpu
+FROM python:3.11-slim-buster
+
+WORKDIR /app
+
+COPY ./requirements/requirements_cputrainer.txt .
+RUN pip install --no-cache-dir -r requirements_cputrainer.txt
+
+COPY ./script/train_cpu.py /app/train_cpu.py
+
+CMD ["python", "/app/train_cpu.py"]
