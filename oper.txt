@@ -15,3 +15,7 @@ sudo rm -rf /mnt/opsops/data/minio/mlflow-artifacts
 sudo rm -rf /mnt/opsops/data/postgresql/
 sudo mkdir /mnt/opsops/data/postgresql
 sudo chown 999 /mnt/opsops/data/postgresql/
+
+kubectl port-forward svc/minio-service 9001:9001
+kubectl port-forward svc/mlflow-tracking-service 5000:5000
+kubectl port-forward service/fastapi-mlops-api-service 8000:8000 -n default

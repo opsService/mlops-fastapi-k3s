@@ -24,9 +24,10 @@ spec:
       containers:
       - name: fastapi-mlops-container
         image: localhost:5002/heedong/fastapi-mlops-api:latest # ⭐ 방금 빌드한 FastAPI 이미지 태그와 일치시켜야 합니다.
-        imagePullPolicy: Always # 개발 중에는 Always로 설정하여 항상 최신 이미지를 가져오도록 강제 (프로덕션에서는 IfNotPresent 또는 Never)
+        imagePullPolicy: IfNotPresent # 개발 중에는 Always로 설정하여 항상 최신 이미지를 가져오도록 강제 (프로덕션에서는 IfNotPresent 또는 Never)
         ports:
         - containerPort: 8000 # FastAPI가 Uvicorn으로 실행될 포트
+        args: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"] # --port를 8000으로 명시 (containerPort와 일치)
         env:
         # FastAPI 앱이 Kubernetes 클라이언트에서 사용할 네임스페이스
         - name: K8S_NAMESPACE
@@ -48,6 +49,16 @@ spec:
             secretKeyRef:
               name: minio-secret
               key: MINIO_ROOT_PASSWORD
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret # postgresql_deployment.yaml에서 사용하는 Secret과 동일하게
+              key: POSTGRES_USER # Secret 내의 키 이름
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret # postgresql_deployment.yaml에서 사용하는 Secret과 동일하게
+              key: POSTGRES_PASSWORD # Secret 내의 키 이름
         # Spring Boot 콜백 URL (FastAPI가 Spring Boot에 상태 업데이트를 보낼 주소)
         - name: SPRING_BOOT_CALLBACK_URL
           value: http://your-spring-boot-service-ip:8080/internal/api/v1/tasks # ⭐ Spring Boot 서비스 주소로 변경 필요!
@@ -73,7 +84,7 @@ spec:
             cpu: "500m"
           limits:
             memory: "1Gi"
-            cpu: "1"
+            cpu: "2"
         livenessProbe:
           httpGet:
             path: /health
