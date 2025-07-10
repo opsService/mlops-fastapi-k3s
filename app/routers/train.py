@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import logging
+from ulid import ULID
 
 # Kubernetes 클라이언트 임포트
 from app.core.k8s_client import k8s_client
@@ -40,6 +41,7 @@ class Hyperparameters(BaseModel):
 
 class CreateTrainJobRequest(BaseModel):
     taskId: str = Field(..., description="Spring Boot에서 생성한 Task ID")
+    experimentName: str = Field(..., description="MLflow Experiment 이름")
     initialModelId: str = Field(..., description="초기 모델 ID (Pre-trained/Custom-trained)")
     initialModelFilePath: str = Field(..., description="초기 모델 파일의 S3/MinIO 경로")
     datasetPath: str = Field(..., description="학습 데이터셋의 S3/MinIO 경로")
@@ -194,20 +196,22 @@ async def create_train_job(request_body: CreateTrainJobRequest, background_tasks
     custom_model_name = request_body.customModelName
 
     # 1. MLflow Run 시작 (FastAPI가 Run ID 생성 책임)
-    experiment_name = f"training-task-{task_id}" # Task ID 기반의 고유한 Experiment 이름
+    experiment_name = request_body.experimentName # Task ID 기반의 고유한 Experiment 이름
     mlflow.set_experiment(experiment_name)
-    with mlflow.start_run() as run:
+
+    with mlflow.start_run(run_name=f"run-{task_id}") as run:
         mlflow_run_id = run.info.run_id
         logger.info(f"New MLflow Run started: {mlflow_run_id} for Task ID: {task_id}")
 
         # MLflow Run에 Spring Boot의 Task ID와 User ID를 태그로 기록
         mlflow.set_tag("task_id", task_id)
+        mlflow.set_tag
         mlflow.set_tag("user_id", request_body.userId)
         mlflow.set_tag("custom_model_name", custom_model_name)
         mlflow.log_params(request_body.hyperparameters.model_dump())
 
-    # Kubernetes Job 이름 생성 (고유성을 위해 taskId의 일부 사용)
-    k8s_job_name = f"train-job-{task_id[:8].lower()}"
+    # Kubernetes Job 이름 생성
+    k8s_job_name = f"train-job-{str(ULID()).lower()}"
 
     # 2. Kubernetes Job 생성 요청
     try:

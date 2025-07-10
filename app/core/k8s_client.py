@@ -69,7 +69,7 @@ class K8sClient:
     def create_train_job(self,
                          job_name: str,
                          image: str,
-                         train_script_path: str,
+                         train_script_path: str, # 빼야할지도
                          mlflow_run_id: str,
                          initial_model_path: Optional[str] = None,
                          dataset_path: Optional[str] = None,
