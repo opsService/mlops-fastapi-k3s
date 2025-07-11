@@ -2,9 +2,10 @@
 import asyncio
 import logging
 import os
-from typing import Dict, List, Optional
+import typing as tp
 
 import requests
+from app.core.config import settings
 
 # Kubernetes 클라이언트 임포트
 from app.core.k8s_client import k8s_client
@@ -25,13 +26,9 @@ from pydantic import BaseModel, Field
 # 로거 설정
 logger = logging.getLogger(__name__)
 
-# FastAPI 내부 인증을 위한 API Key (환경 변수에서 가져옴)
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "your-super-secret-internal-api-key")
-
-
 def get_api_key(x_api_key: str = Header(..., alias="X-API-KEY")):
     """내부 API 키를 검증합니다."""
-    if x_api_key != INTERNAL_API_KEY:
+    if x_api_key != settings.INTERNAL_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid internal API Key"
         )
@@ -44,7 +41,7 @@ router = APIRouter()
 async def _monitor_inference_deployment(
     task_id: str,
     deployment_name: str,
-    mlflow_run_id: Optional[str],
+    mlflow_run_id: tp.Optional[str],
     inference_api_endpoint: str,
 ):
     logger.info(
@@ -235,8 +232,8 @@ async def _monitor_inference_deployment(
 async def _rollback_resources(
     task_id: str,
     deployment_name: str,
-    service_name: Optional[str],
-    ingress_name: Optional[str],
+    service_name: tp.Optional[str],
+    ingress_name: tp.Optional[str],
 ):
     """
     배포 실패 시 생성된 Kubernetes 리소스를 롤백(삭제)합니다.

@@ -3,11 +3,11 @@ import asyncio
 import json
 import logging
 import os
-from typing import Dict, List, Optional
-from uuid import uuid4
+import typing as tp
 
 # MLflow 클라이언트 임포트
 import mlflow
+from app.core.config import settings
 
 # Kubernetes 클라이언트 임포트
 from app.core.k8s_client import k8s_client
@@ -31,13 +31,10 @@ from ulid import ULID
 
 logger = logging.getLogger(__name__)
 
-# --- FastAPI 내부 인증을 위한 API Key (실제 환경에서는 더 강력한 방법 사용) ---
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "your-super-secret-internal-api-key")
-
 
 def verify_internal_api_key(x_api_key: str = Header(..., alias="X-API-KEY")):
     """내부 API 키를 검증합니다."""
-    if x_api_key != INTERNAL_API_KEY:
+    if x_api_key != settings.INTERNAL_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid internal API Key"
         )
@@ -473,7 +470,7 @@ async def delete_task_resources(taskId: str):
 
 # --- Task 로그 조회 엔드포인트 (Train/Inference 공통) ---
 @router.get("/{taskId}/logs")
-async def get_task_logs(taskId: str, tail: Optional[int] = None):
+async def get_task_logs(taskId: str, tail: tp.Optional[int] = None):
     """
     3.1. Task 컨테이너 로그 조회를 처리합니다.
     해당 Task와 관련된 Kubernetes Pod의 로그를 반환합니다.

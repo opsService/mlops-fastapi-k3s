@@ -2,7 +2,7 @@
 import json
 import logging
 import os
-from typing import Dict, List, Optional
+import typing as tp
 
 from kubernetes import client, config
 
@@ -43,7 +43,7 @@ class K8sClient:
             f"Kubernetes 클라이언트가 네임스페이스 '{self.namespace}'에 대해 초기화되었습니다."
         )
 
-    def _get_base_env_vars(self) -> List[client.V1EnvVar]:
+    def _get_base_env_vars(self) -> tp.List[client.V1EnvVar]:
         """
         MLflow 및 MinIO 관련 기본 환경 변수를 반환합니다.
         이는 Trainer Job과 Inference Deployment 모두에 사용됩니다.
@@ -83,11 +83,11 @@ class K8sClient:
         image: str,
         train_script_path: str,  # 빼야할지도
         mlflow_run_id: str,
-        initial_model_path: Optional[str] = None,
-        dataset_path: Optional[str] = None,
-        hyperparameters: Optional[Dict[str, str]] = None,
-        resources_requests: Optional[Dict[str, str]] = None,
-        resources_limits: Optional[Dict[str, str]] = None,
+        initial_model_path: tp.Optional[str] = None,
+        dataset_path: tp.Optional[str] = None,
+        hyperparameters: tp.Optional[tp.Dict[str, str]] = None,
+        resources_requests: tp.Optional[tp.Dict[str, str]] = None,
+        resources_limits: tp.Optional[tp.Dict[str, str]] = None,
         use_gpu: bool = False,
     ):
         """
@@ -220,7 +220,7 @@ class K8sClient:
             )
             raise Exception(f"예상치 못한 오류 Job 삭제: {e}")
 
-    def get_pods_for_job(self, job_name: str) -> List[client.V1Pod]:
+    def get_pods_for_job(self, job_name: str) -> tp.List[client.V1Pod]:
         """
         특정 Job에 의해 생성된 Pod들을 조회합니다.
         """
@@ -239,7 +239,7 @@ class K8sClient:
             )
             raise Exception(f"예상치 못한 오류 Pod 조회: {e}")
 
-    def get_pod_logs(self, pod_name: str, tail_lines: Optional[int] = None) -> str:
+    def get_pod_logs(self, pod_name: str, tail_lines: tp.Optional[int] = None) -> str:
         """
         특정 Pod의 로그를 조회합니다.
         """
@@ -267,13 +267,13 @@ class K8sClient:
         deployment_name: str,
         image: str,
         mlflow_run_id: str,
-        model_file_path: Optional[str] = None,
+        model_file_path: tp.Optional[str] = None,
         replicas: int = 1,
-        resources_requests: Optional[Dict[str, str]] = None,
-        resources_limits: Optional[Dict[str, str]] = None,
+        resources_requests: tp.Optional[tp.Dict[str, str]] = None,
+        resources_limits: tp.Optional[tp.Dict[str, str]] = None,
         use_gpu: bool = False,
-        ingress_host: Optional[str] = None,
-        ingress_path: Optional[str] = None,
+        ingress_host: tp.Optional[str] = None,
+        ingress_path: tp.Optional[str] = None,
     ):
         logger.info(f"Kubernetes 추론 Deployment 생성 시도: {deployment_name}")
 
