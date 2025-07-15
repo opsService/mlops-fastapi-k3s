@@ -7,5 +7,7 @@ COPY ./requirements/requirements_cputrainer.txt .
 RUN pip install --no-cache-dir -r requirements_cputrainer.txt
 
 COPY ./script/train_cpu.py /app/train_cpu.py
+# COPY app/core/logging_config.py ./app/core/logging_config.py
+COPY app /app/app
 
-CMD ["python", "/app/train_cpu.py"]
+CMD ["python", "-m", "app.train_cpu"]

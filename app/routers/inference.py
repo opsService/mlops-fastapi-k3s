@@ -392,6 +392,7 @@ async def deploy_inference_task(
         return {
             "message": "Kubernetes 추론 리소스 생성이 시작되었습니다.",
             "inferenceApiEndpoint": inference_api_endpoint,
+            "task_id": task_id,
         }
 
     except Exception as e:

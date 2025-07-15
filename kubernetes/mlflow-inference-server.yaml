@@ -57,6 +57,21 @@ spec:
             secretKeyRef:
               name: minio-secret
               key: MINIO_ROOT_PASSWORD
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: fastapi-internal-api-key-secret # 이 Secret은 별도로 생성해야 합니다.
+              key: API_KEY
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret # postgresql_deployment.yaml에서 사용하는 Secret과 동일하게
+              key: POSTGRES_USER # Secret 내의 키 이름
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret # postgresql_deployment.yaml에서 사용하는 Secret과 동일하게
+              key: POSTGRES_PASSWORD # Secret 내의 키 이름
         resources:
           requests:
             memory: "1Gi"

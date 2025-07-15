@@ -7,3 +7,4 @@ asyncpg
 minio
 httpx
 python-ulid
+python-json-logger

@@ -6,6 +6,7 @@ import typing as tp
 # DB, MinIO
 import asyncpg  # PostgreSQL
 from app.core.config import settings
+from app.core.logging_config import setup_logging
 
 # 라우터 임포트
 from app.routers import inference, train
@@ -13,9 +14,7 @@ from fastapi import FastAPI, HTTPException, status
 from minio import Minio  # MinIO
 
 # 로거 설정 (FastAPI 앱의 로거)
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(

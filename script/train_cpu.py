@@ -1,38 +1,45 @@
-import os
 import argparse
 import json
-import numpy as np
-import pandas as pd
-import joblib
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score
-import matplotlib.pyplot as plt
-import mlflow
-import mlflow.pytorch # PyTorch 모델 로깅을 위해 필요
-import mlflow.sklearn # sklearn 모델 로깅을 위해 필요 (스케일러는 joblib으로 저장 후 artifact로 로깅할 것임)
-import tempfile # 임시 디렉토리 생성을 위해 추가
-import shutil # 임시 디렉토리 삭제를 위해 추가
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-import torch.nn as nn
-import torch.optim as optim
 
 # 로거 설정
 import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+import os
+import shutil  # 임시 디렉토리 삭제를 위해 추가
+import tempfile  # 임시 디렉토리 생성을 위해 추가
+
+import joblib
+import matplotlib.pyplot as plt
+import mlflow
+import mlflow.pytorch  # PyTorch 모델 로깅을 위해 필요
+import mlflow.sklearn  # sklearn 모델 로깅을 위해 필요 (스케일러는 joblib으로 저장 후 artifact로 로깅할 것임)
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from app.core.logging_config import setup_logging
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, TensorDataset
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # --- 1. MLflow Tracking Server 설정 ---
 # MLflow Tracking Server의 주소를 환경 변수에서 가져옵니다.
 # Kubernetes 내부에서 접근한다면 서비스 이름을 사용합니다.
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000") # 기본값은 로컬 테스트용
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI", "http://localhost:5000"
+)  # 기본값은 로컬 테스트용
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 logger.info(f"MLflow Tracking URI set to: {MLFLOW_TRACKING_URI}")
 
 # MinIO (S3) 엔드포인트 URL 설정 (아티팩트 저장용)
-MLFLOW_S3_ENDPOINT_URL = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://minio-service:9000")
+MLFLOW_S3_ENDPOINT_URL = os.getenv(
+    "MLFLOW_S3_ENDPOINT_URL", "http://minio-service:9000"
+)
 os.environ["MLFLOW_S3_ENDPOINT_URL"] = MLFLOW_S3_ENDPOINT_URL
 logger.info(f"MLflow S3 Endpoint URL set to: {MLFLOW_S3_ENDPOINT_URL}")
 
@@ -48,11 +55,13 @@ logger.info(f"Using device: {DEVICE}")
 # --- 3. 데이터 생성 및 전처리 (선형 회귀 예시) ---
 # 간단한 선형 회귀 데이터 생성: y = 2*x + 1 + noise
 np.random.seed(42)
-X = np.random.rand(100, 1) * 10 # 0에서 10 사이의 X 값
-y = 2 * X + 1 + np.random.randn(100, 1) * 2 # 노이즈 추가
+X = np.random.rand(100, 1) * 10  # 0에서 10 사이의 X 값
+y = 2 * X + 1 + np.random.randn(100, 1) * 2  # 노이즈 추가
 
 # 데이터 분할
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
 
 # 스케일러 초기화 및 데이터 스케일링
 scaler_X = StandardScaler()
@@ -76,14 +85,16 @@ train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
+
 # --- 4. PyTorch 모델 정의 (간단한 선형 모델) ---
 class SimpleLinearRegression(nn.Module):
     def __init__(self):
         super(SimpleLinearRegression, self).__init__()
-        self.linear = nn.Linear(1, 1) # 입력 1, 출력 1
+        self.linear = nn.Linear(1, 1)  # 입력 1, 출력 1
 
     def forward(self, x):
         return self.linear(x)
+
 
 # 모델 초기화
 model = SimpleLinearRegression().to(DEVICE)
@@ -148,7 +159,9 @@ for epoch in range(num_epochs):
     mlflow.log_metric("train_loss", epoch_train_loss, step=epoch)
     mlflow.log_metric("test_loss", epoch_test_loss, step=epoch)
 
-    logger.info(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {epoch_train_loss:.4f}, Test Loss: {epoch_test_loss:.4f}")
+    logger.info(
+        f"Epoch {epoch+1}/{num_epochs}, Train Loss: {epoch_train_loss:.4f}, Test Loss: {epoch_test_loss:.4f}"
+    )
 
 # --- 6. 모델 및 스케일러 저장 및 MLflow 로깅 ---
 # 스케일러 저장 (기존 방식 유지 - joblib을 통한 명시적 저장 후 artifact로 로깅)
@@ -161,19 +174,21 @@ logger.info(f"Scaler X saved as artifact: {scaler_path} -> scaler/scaler_X.pkl")
 
 scaler_y_path = os.path.join(temp_dir_for_scaler, "scaler_y.pkl")
 joblib.dump(scaler_y, scaler_y_path)
-mlflow.log_artifact(scaler_y_path, artifact_path="scaler") # scaler 디렉토리 밑에 저장
+mlflow.log_artifact(scaler_y_path, artifact_path="scaler")  # scaler 디렉토리 밑에 저장
 logger.info(f"Scaler Y saved as artifact: {scaler_y_path} -> scaler/scaler_y.pkl")
-shutil.rmtree(temp_dir_for_scaler) # 임시 디렉토리 정리
+shutil.rmtree(temp_dir_for_scaler)  # 임시 디렉토리 정리
 
 # ⭐ PyTorch 모델 로깅 (torch.save로 명시적 저장 후 mlflow.log_artifact) ⭐
 # 기존 mlflow.pytorch.log_model() 대신 이 방법을 시도합니다.
 # 이렇게 하면 'model/' 디렉토리 대신 'explicit_model/' 디렉토리에 .pth 파일이 직접 저장되는지 확인할 수 있습니다.
 temp_dir_for_model = tempfile.mkdtemp()
 model_file_path = os.path.join(temp_dir_for_model, "pytorch_model_state_dict.pth")
-torch.save(model.state_dict(), model_file_path) # 모델의 state_dict만 저장
+torch.save(model.state_dict(), model_file_path)  # 모델의 state_dict만 저장
 mlflow.log_artifact(model_file_path, artifact_path="explicit_model")
-logger.info(f"PyTorch model state_dict explicitly saved as artifact: {model_file_path} -> explicit_model/pytorch_model_state_dict.pth")
-shutil.rmtree(temp_dir_for_model) # 임시 디렉토리 정리
+logger.info(
+    f"PyTorch model state_dict explicitly saved as artifact: {model_file_path} -> explicit_model/pytorch_model_state_dict.pth"
+)
+shutil.rmtree(temp_dir_for_model)  # 임시 디렉토리 정리
 
 
 # # ⭐ 기존 mlflow.pytorch.log_model 호출 (주석 처리 또는 제거) ⭐
@@ -197,11 +212,11 @@ shutil.rmtree(temp_dir_for_model) # 임시 디렉토리 정리
 
 # 손실 곡선 시각화 및 아티팩트 저장
 plt.figure(figsize=(10, 6))
-plt.plot(train_losses, label='Train Loss')
-plt.plot(test_losses, label='Test Loss')
-plt.title('Training and Test Loss over Epochs')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
+plt.plot(train_losses, label="Train Loss")
+plt.plot(test_losses, label="Test Loss")
+plt.title("Training and Test Loss over Epochs")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
 plt.legend()
 plt.grid(True)
 plot_path = "loss_curve.png"
@@ -217,16 +232,26 @@ with torch.no_grad():
 predictions = scaler_y.inverse_transform(predictions_scaled)
 
 # 실제 값 (스케일링 역변환)
-y_test_original = scaler_y.inverse_transform(y_test_scaled) # 수정된 부분
+y_test_original = scaler_y.inverse_transform(y_test_scaled)  # 수정된 부분
 
 # 예측 결과 시각화 및 아티팩트 저장
 plt.figure(figsize=(10, 6))
 # ⭐ X_test_scaled가 1D가 아닐 경우 첫 번째 특성만 사용 ([:, 0] 추가)
-plt.scatter(scaler_X.inverse_transform(X_test_scaled)[:, 0], y_test_original, label='Actual Values', alpha=0.6)
-plt.scatter(scaler_X.inverse_transform(X_test_scaled)[:, 0], predictions, label='Predictions', alpha=0.6)
-plt.title('Actual vs. Predicted Values')
-plt.xlabel('X')
-plt.ylabel('y')
+plt.scatter(
+    scaler_X.inverse_transform(X_test_scaled)[:, 0],
+    y_test_original,
+    label="Actual Values",
+    alpha=0.6,
+)
+plt.scatter(
+    scaler_X.inverse_transform(X_test_scaled)[:, 0],
+    predictions,
+    label="Predictions",
+    alpha=0.6,
+)
+plt.title("Actual vs. Predicted Values")
+plt.xlabel("X")
+plt.ylabel("y")
 plt.legend()
 plt.grid(True)
 prediction_plot_path = "predictions.png"

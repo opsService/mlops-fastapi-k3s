@@ -5,3 +5,4 @@ torch>=2.7.1
 scikit-learn==1.5.0 # 스케일러 로딩용
 numpy==1.26.4
 boto3==1.34.120    # S3/MinIO 통신용
+python-json-logger

@@ -1,4 +1,4 @@
-# mlops-fastapi-app/app/inference_server.py (수정 제안)
+# mlops-fastapi-app/app/inference_server.py
 
 import logging
 import os
@@ -11,12 +11,11 @@ import mlflow
 import numpy as np
 import torch  # PyTorch 모델 로딩용
 import torch.nn as nn  # PyTorch 모델 클래스 정의를 위해 필요
+from app.core.logging_config import setup_logging
 from flask import Flask, jsonify, request
 
 # 로거 설정
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+setup_logging()
 logger = logging.getLogger("inference_server")
 
 app = Flask(__name__)

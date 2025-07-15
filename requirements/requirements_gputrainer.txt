@@ -7,3 +7,4 @@ pandas
 numpy
 matplotlib
 boto3
+python-json-logger

@@ -75,6 +75,30 @@ class K8sClient:
                     )
                 ),
             ),
+            client.V1EnvVar(
+                name="INTERNAL_API_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="fastapi-internal-api-key-secret", key="API_KEY"
+                    )
+                ),
+            ),
+            client.V1EnvVar(
+                name="POSTGRES_USER",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="postgres-secret", key="POSTGRES_USER"
+                    )
+                ),
+            ),
+            client.V1EnvVar(
+                name="POSTGRES_PASSWORD",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="postgres-secret", key="POSTGRES_PASSWORD"
+                    )
+                ),
+            ),
         ]
 
     def create_train_job(
