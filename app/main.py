@@ -77,8 +77,8 @@ async def health_check() -> tp.Dict:
 
         minio_client = Minio(
             f"{minio_host}:{minio_port}",  # 호스트:포트 형식
-            access_key=settings.MINIO_ACCESS_KEY,
-            secret_key=settings.MINIO_SECRET_KEY,
+            access_key=settings.AWS_ACCESS_KEY_ID,
+            secret_key=settings.AWS_SECRET_ACCESS_KEY,
             secure=False,  # K3s 내부에서는 HTTP 사용 (False)
         )
         # 버킷이 존재하는지 확인 (예: mlflow-artifacts 버킷)

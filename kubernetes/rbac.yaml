@@ -9,7 +9,7 @@ rules:
   resources: ["pods", "pods/log", "services"] # services에 대한 권한 포함
   verbs: ["get", "list", "watch", "create", "delete"] # create, delete 권한 추가
 - apiGroups: ["batch"]
-  resources: ["jobs"]
+  resources: ["jobs", "jobs/status"]
   verbs: ["get", "list", "watch", "create", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments", "deployments/status"]

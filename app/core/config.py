@@ -61,13 +61,6 @@ class Settings:
     MINIO_ENDPOINT: str = os.getenv(
         "MLFLOW_S3_ENDPOINT_URL", "http://minio-service:9000"
     ).replace("http://", "") # http:// 제거
-    MINIO_ACCESS_KEY: str = os.getenv("AWS_ACCESS_KEY_ID") # AWS_ACCESS_KEY_ID와 동일
-    MINIO_SECRET_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY") # AWS_SECRET_ACCESS_KEY와 동일
-    if MINIO_ACCESS_KEY is None or MINIO_SECRET_KEY is None:
-        raise ValueError(
-            "MINIO_ACCESS_KEY 또는 MINIO_SECRET_KEY 환경 변수가 설정되지 않았습니다."
-            " MinIO 클라이언트 연동에 필수입니다. Kubernetes Secret을 통해 주입하세요."
-        )
 
 # Settings 객체를 싱글톤처럼 사용하여 애플리케이션 전역에서 일관되게 접근
 @lru_cache()

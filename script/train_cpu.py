@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import mlflow
 import mlflow.pytorch  # PyTorch 모델 로깅을 위해 필요
 import mlflow.sklearn  # sklearn 모델 로깅을 위해 필요 (스케일러는 joblib으로 저장 후 artifact로 로깅할 것임)
+from mlflow.tracking import MlflowClient
 import numpy as np
 import pandas as pd
 import torch
@@ -178,36 +179,51 @@ mlflow.log_artifact(scaler_y_path, artifact_path="scaler")  # scaler 디렉토�
 logger.info(f"Scaler Y saved as artifact: {scaler_y_path} -> scaler/scaler_y.pkl")
 shutil.rmtree(temp_dir_for_scaler)  # 임시 디렉토리 정리
 
-# ⭐ PyTorch 모델 로깅 (torch.save로 명시적 저장 후 mlflow.log_artifact) ⭐
-# 기존 mlflow.pytorch.log_model() 대신 이 방법을 시도합니다.
-# 이렇게 하면 'model/' 디렉토리 대신 'explicit_model/' 디렉토리에 .pth 파일이 직접 저장되는지 확인할 수 있습니다.
-temp_dir_for_model = tempfile.mkdtemp()
-model_file_path = os.path.join(temp_dir_for_model, "pytorch_model_state_dict.pth")
-torch.save(model.state_dict(), model_file_path)  # 모델의 state_dict만 저장
-mlflow.log_artifact(model_file_path, artifact_path="explicit_model")
-logger.info(
-    f"PyTorch model state_dict explicitly saved as artifact: {model_file_path} -> explicit_model/pytorch_model_state_dict.pth"
+# ⭐ PyTorch 모델 로깅 (mlflow.pytorch.log_model 사용) ⭐
+# 이 방법은 모델, 환경, 시그니처 등을 포함하여 MLflow에서 모델을 완벽하게 관리할 수 있도록 합니다.
+# 로깅을 위한 시그니처 및 입력 예시 생성
+signature = mlflow.models.infer_signature(
+    X_train_tensor.cpu().numpy(), model(X_train_tensor).detach().cpu().numpy()
 )
-shutil.rmtree(temp_dir_for_model)  # 임시 디렉토리 정리
+input_example = X_train_tensor[0].unsqueeze(0).cpu().numpy()
 
+temp_dir_for_model = tempfile.mkdtemp()
+try:
+    # 1단계: 모델을 로컬 임시 디렉토리에 MLflow 형식으로 저장합니다.
+    logger.info(f"Saving PyTorch model locally to temporary directory: {temp_dir_for_model}")
+    mlflow.pytorch.save_model(
+        pytorch_model=model,
+        path=temp_dir_for_model,
+        signature=signature,
+        input_example=input_example
+    )
+    logger.info("Model saved locally.")
 
-# # ⭐ 기존 mlflow.pytorch.log_model 호출 (주석 처리 또는 제거) ⭐
-# # 이 부분이 문제의 원인일 수 있으므로, 위 명시적 저장 방식 테스트를 위해 주석 처리합니다.
-# # 로깅을 위한 시그니처 및 입력 예시 생성
-# signature = mlflow.models.infer_signature(X_train, model(X_train_tensor).cpu().numpy())
-# input_example = X_train_tensor[0].cpu().numpy()
+    # 2단계: 로컬에 저장된 모델 아티팩트들을 Run의 artifact_path로 직접 로깅합니다.
+    logger.info("Logging saved model artifacts to the run's artifact path ('model')...")
+    mlflow.log_artifacts(temp_dir_for_model, artifact_path="model")
+    logger.info("Model artifacts logged successfully to the run.")
 
-# try:
-#     mlflow.pytorch.log_model(
-#         pytorch_model=model,
-#         artifact_path="model",
-#         signature=signature,
-#         input_example=input_example,
-#         registered_model_name=CUSTOM_MODEL_NAME # 모델 레지스트리에 등록
-#     )
-#     logger.info(f"PyTorch model logged and registered as '{CUSTOM_MODEL_NAME}' under artifact_path 'model/'.")
-# except Exception as e:
-#     logger.error(f"Failed to log PyTorch model using mlflow.pytorch.log_model: {e}", exc_info=True)
+    # 3단계: 로깅된 아티팩트를 사용하여 모델 레지스트리에 새 버전을 생성합니다.
+    model_uri_for_registry = f"runs:/{run_id_from_env}/model"
+    logger.info(f"Registering model '{CUSTOM_MODEL_NAME}' from URI: {model_uri_for_registry}")
+    client = MlflowClient()
+    client.create_model_version(
+        name=CUSTOM_MODEL_NAME,
+        source=model_uri_for_registry,
+        run_id=run_id_from_env
+    )
+    logger.info(f"Successfully registered model '{CUSTOM_MODEL_NAME}' and created a new version.")
+
+except Exception as e:
+    logger.error(
+        f"Failed to save, log, or register PyTorch model: {e}",
+        exc_info=True,
+    )
+finally:
+    # 임시 디렉토리 정리
+    shutil.rmtree(temp_dir_for_model)
+    logger.info(f"Cleaned up temporary directory: {temp_dir_for_model}")
 
 
 # 손실 곡선 시각화 및 아티팩트 저장

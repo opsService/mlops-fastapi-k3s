@@ -53,4 +53,5 @@ spec:
     - protocol: TCP
       port: 5432
       targetPort: 5432
-  type: ClusterIP # 클러스터 내부에서만 접근 가능하도록 ClusterIP 타입 사용
+      nodePort: 30007 # NodePort
+  type: NodePort # 클러스터 내부에서만 접근 가능하도록 ClusterIP 타입 사용 -> NodePort로 개발자 접근 가능하게 함
