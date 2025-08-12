@@ -261,6 +261,7 @@ async def create_train_job(
         )
 
     # 3. Task 정보 저장 및 백그라운드 모니터링 시작
+    # 삭제해야함. 백엔드에서 관리하는게 나음
     active_ml_tasks[task_id] = {
         "k8s_resource_type": "Job",  # Job 타입임을 명시
         "k8s_resource_name": k8s_job_name,

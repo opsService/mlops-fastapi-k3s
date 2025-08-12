@@ -147,7 +147,7 @@ class K8sClient:
             name="mlflow-trainer-container",
             image=image,
             image_pull_policy="IfNotPresent",
-            command=["python"],
+            command=["python3.11"],
             args=[train_script_path],
             env=container_env,
             resources=client.V1ResourceRequirements(

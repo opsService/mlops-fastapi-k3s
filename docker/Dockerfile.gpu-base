@@ -1,0 +1,40 @@
+# Dockerfile for a reusable base GPU image for ML training
+# Filename: Dockerfile.gpu-base
+
+# Base image with CUDA 12.1.1 and cuDNN 8 on Ubuntu 22.04
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+# Set non-interactive frontend for apt-get to avoid prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install minimal system dependencies including Python 3.11 and pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set a default working directory
+WORKDIR /app
+
+# Upgrade pip and install common Python libraries for GPU-based ML training.
+# These are based on the project's requirements_gputrainer.txt.
+RUN python3.11 -m pip install --no-cache-dir --upgrade pip && \
+    python3.11 -m pip install --no-cache-dir \
+    # Install PyTorch with the specific CUDA 12.1 version first
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
+    # Install other common ML libraries
+    python3.11 -m pip install --no-cache-dir \
+    mlflow>=2.10.0 \
+    scikit-learn \
+    pandas \
+    numpy \
+    matplotlib \
+    boto3 \
+    python-json-logger \
+    joblib
+
+# This is a base image, so it's not intended to have a CMD. 
+# It's intended to be used as a base for other Dockerfiles.

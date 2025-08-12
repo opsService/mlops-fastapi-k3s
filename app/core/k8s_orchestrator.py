@@ -49,7 +49,7 @@ class K8sOrchestrator:
                 image=request.trainerImage,
                 namespace=settings.K8S_NAMESPACE,
                 command=[
-                    "python",
+                    "python3.11", # Changed from "python"
                     request.trainScriptPath,
                     "--task-id", task_id,
                     "--experiment-name", request.experimentName,
@@ -67,6 +67,7 @@ class K8sOrchestrator:
                 env_vars={
                     "AWS_ACCESS_KEY_ID": settings.AWS_ACCESS_KEY_ID,
                     "AWS_SECRET_ACCESS_KEY": settings.AWS_SECRET_ACCESS_KEY,
+                    "INTERNAL_API_KEY": settings.INTERNAL_API_KEY, # Added this line
                 },
                 volume_name=volume_name,
                 pvc_name=pvc_name,

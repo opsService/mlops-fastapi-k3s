@@ -1,0 +1,15 @@
+# docker/Dockerfile.inference
+FROM localhost:5002/heedong/gpu-base:latest
+
+WORKDIR /app
+
+# COPY ./requirements/requirements_inference.txt .
+# RUN pip install --no-cache-dir -r requirements_inference.txt
+
+# COPY app/inference_server.py ./app/inference_server.py
+# COPY app/core/logging_config.py ./app/core/logging_config.py
+COPY app /app/app
+
+# 서버 실행 명령
+# Flask 앱을 Gunicorn으로 실행하는 표준 방식
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8000", "app.inference_server:app"]

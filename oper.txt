@@ -11,6 +11,20 @@ sudo nerdctl build -t localhost:5002/heedong/mlflow-trainer:latest -f docker/Doc
 sudo nerdctl push localhost:5002/heedong/mlflow-trainer:latest
 sudo crictl pull localhost:5002/heedong/mlflow-trainer:latest
 
+sudo nerdctl build -t localhost:5002/heedong/gpu-base:latest -f docker/Dockerfile.gpu-base .
+sudo nerdctl push localhost:5002/heedong/gpu-base:latest
+sudo crictl pull localhost:5002/heedong/gpu-base:latest
+
+sudo nerdctl build -t localhost:5002/heedong/mlflow-trainer-gpu:latest -f docker/Dockerfile.traingpu .
+sudo nerdctl push localhost:5002/heedong/mlflow-trainer-gpu:latest
+sudo crictl pull localhost:5002/heedong/mlflow-trainer-gpu:latest
+
+NEW_INFERENCE_TAG="final-debug-v1"
+sudo nerdctl build -t localhost:5002/heedong/mlflow-inference-server-gpu:${NEW_INFERENCE_TAG} -f docker/Dockerfile.inferencegpu .
+sudo nerdctl push localhost:5002/heedong/mlflow-inference-server-gpu:${NEW_INFERENCE_TAG}
+sudo crictl pull localhost:5002/heedong/mlflow-inference-server-gpu:${NEW_INFERENCE_TAG}
+
+
 sudo rm -rf /mnt/opsops/data/minio/mlflow-artifacts
 sudo rm -rf /mnt/opsops/data/postgresql/
 sudo mkdir /mnt/opsops/data/postgresql

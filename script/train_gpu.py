@@ -12,13 +12,13 @@ import matplotlib.pyplot as plt
 import mlflow
 import mlflow.pytorch  # PyTorch 모델 로깅을 위해 필요
 import mlflow.sklearn  # sklearn 모델 로깅을 위해 필요 (스케일러는 joblib으로 저장 후 artifact로 로깅할 것임)
-from mlflow.tracking import MlflowClient
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from app.core.logging_config import setup_logging
+from mlflow.tracking import MlflowClient
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -29,42 +29,34 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 # --- 1. MLflow Tracking Server 설정 ---
-# MLflow Tracking Server의 주소를 환경 변수에서 가져옵니다.
-# Kubernetes 내부에서 접근한다면 서비스 이름을 사용합니다.
 MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI", "http://localhost:5000"
-)  # 기본값은 로컬 테스트용
+)
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 logger.info(f"MLflow Tracking URI set to: {MLFLOW_TRACKING_URI}")
 
-# MinIO (S3) 엔드포인트 URL 설정 (아티팩트 저장용)
 MLFLOW_S3_ENDPOINT_URL = os.getenv(
     "MLFLOW_S3_ENDPOINT_URL", "http://minio-service:9000"
 )
 os.environ["MLFLOW_S3_ENDPOINT_URL"] = MLFLOW_S3_ENDPOINT_URL
 logger.info(f"MLflow S3 Endpoint URL set to: {MLFLOW_S3_ENDPOINT_URL}")
 
-# MinIO (S3) 인증 정보 설정
 os.environ["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID")
 os.environ["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 # --- 2. GPU 사용 가능 여부 확인 및 장치 설정 ---
-# 이 스크립트에서는 CPU로 고정하여 실행
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {DEVICE}")
 
 # --- 3. 데이터 생성 및 전처리 (선형 회귀 예시) ---
-# 간단한 선형 회귀 데이터 생성: y = 2*x + 1 + noise
 np.random.seed(42)
-X = np.random.rand(100, 1) * 10  # 0에서 10 사이의 X 값
-y = 2 * X + 1 + np.random.randn(100, 1) * 2  # 노이즈 추가
+X = np.random.rand(100, 1) * 10
+y = 2 * X + 1 + np.random.randn(100, 1) * 2
 
-# 데이터 분할
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-# 스케일러 초기화 및 데이터 스케일링
 scaler_X = StandardScaler()
 scaler_y = StandardScaler()
 
@@ -73,13 +65,11 @@ y_train_scaled = scaler_y.fit_transform(y_train)
 X_test_scaled = scaler_X.transform(X_test)
 y_test_scaled = scaler_y.transform(y_test)
 
-# PyTorch Tensor로 변환
 X_train_tensor = torch.tensor(X_train_scaled, dtype=torch.float32).to(DEVICE)
 y_train_tensor = torch.tensor(y_train_scaled, dtype=torch.float32).to(DEVICE)
 X_test_tensor = torch.tensor(X_test_scaled, dtype=torch.float32).to(DEVICE)
 y_test_tensor = torch.tensor(y_test_scaled, dtype=torch.float32).to(DEVICE)
 
-# DataLoader 설정
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
@@ -91,14 +81,13 @@ test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 class SimpleLinearRegression(nn.Module):
     def __init__(self):
         super(SimpleLinearRegression, self).__init__()
-        self.linear = nn.Linear(1, 1)  # 입력 1, 출력 1
+        self.linear = nn.Linear(1, 1)
 
     def forward(self, x):
         return self.linear(x)
 
 
 # --- Pyfunc 모델 래퍼 ---
-# 이 래퍼는 모델과 전/후처리(스케일링) 로직을 하나로 묶어줍니다.
 class ModelWrapper(mlflow.pyfunc.PythonModel):
     def __init__(self, model):
         self.model = model
@@ -106,23 +95,20 @@ class ModelWrapper(mlflow.pyfunc.PythonModel):
         self.scaler_y = None
 
     def load_context(self, context):
-        # 아티팩트에서 스케일러를 로드합니다.
         self.scaler_X = joblib.load(context.artifacts["scaler_x_path"])
         self.scaler_y = joblib.load(context.artifacts["scaler_y_path"])
         logger.info("Scalers loaded successfully within pyfunc model.")
 
     def predict(self, context, model_input):
-        # 입력 데이터(pandas DataFrame)를 스케일링합니다.
         scaled_features = self.scaler_X.transform(model_input.values)
         
-        # PyTorch Tensor로 변환합니다.
-        input_tensor = torch.tensor(scaled_features, dtype=torch.float32)
+        # 모델과 동일한 장치로 입력 텐서 이동
+        device = next(self.model.parameters()).device
+        input_tensor = torch.tensor(scaled_features, dtype=torch.float32).to(device)
         
-        # 예측을 수행합니다.
         with torch.no_grad():
             prediction_scaled = self.model(input_tensor).cpu().numpy()
             
-        # 예측 결과를 역스케일링합니다.
         prediction = self.scaler_y.inverse_transform(prediction_scaled)
         
         return prediction
@@ -136,10 +122,8 @@ optimizer = optim.SGD(model.parameters(), lr=0.01)
 
 # --- 5. MLflow Run 시작 및 모델 학습 ---
 CUSTOM_MODEL_NAME = "SimpleLinearRegressionModel"
-# run_name = os.getenv("MLFLOW_RUN_NAME", "pytorch_linear_regression_run")
 run_id_from_env = os.getenv("MLFLOW_RUN_ID")
 
-# MLflow Run ID가 환경 변수에 제공되면 해당 Run에 연결, 아니면 새 Run 생성
 if run_id_from_env:
     mlflow.start_run(run_id=run_id_from_env)
     logger.info(f"Attaching to existing MLflow Run with ID: {run_id_from_env}")
@@ -161,7 +145,6 @@ train_losses = []
 test_losses = []
 
 for epoch in range(num_epochs):
-    # Training
     model.train()
     running_loss = 0.0
     for inputs, labels in train_loader:
@@ -175,7 +158,6 @@ for epoch in range(num_epochs):
     epoch_train_loss = running_loss / len(train_loader.dataset)
     train_losses.append(epoch_train_loss)
 
-    # Validation
     model.eval()
     test_loss = 0.0
     with torch.no_grad():
@@ -195,7 +177,6 @@ for epoch in range(num_epochs):
     )
 
 # --- 6. 모델 및 스케일러 저장 및 MLflow 로깅 (Pyfunc 사용) ---
-# 임시 디렉토리에 스케일러를 저장하여 아티팩트로 함께 로깅합니다.
 with tempfile.TemporaryDirectory() as tmpdir:
     scaler_x_path = os.path.join(tmpdir, "scaler_X.pkl")
     scaler_y_path = os.path.join(tmpdir, "scaler_y.pkl")
@@ -207,21 +188,17 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "scaler_y_path": scaler_y_path,
     }
 
-    # 로깅을 위한 시그니처 및 입력 예시 생성
-    # 입력은 스케일링 전의 원본 데이터 형태여야 합니다.
     input_example = pd.DataFrame(X_train[:5], columns=['feature'])
-    # 예측 결과도 원본 스케일의 데이터 형태입니다.
-    # signature = mlflow.models.infer_signature(input_example, wrapped_model.predict(None, input_example))
     
     logger.info("Logging model using mlflow.pyfunc.log_model")
     
-    # mlflow.pyfunc.log_model을 사용하여 모델, 아티팩트, 환경을 한 번에 로깅
     mlflow.pyfunc.log_model(
-        artifact_path="pyfunc_model",  # MinIO에 저장될 디렉토리 이름
+        artifact_path="pyfunc_model",
         python_model=ModelWrapper(model=model),
         artifacts=artifacts_to_log,
+        # code_path=[__file__],
         input_example=input_example,
-        registered_model_name=CUSTOM_MODEL_NAME, # 바로 모델 레지스트리에 등록
+        registered_model_name=CUSTOM_MODEL_NAME,
     )
     logger.info(f"Model '{CUSTOM_MODEL_NAME}' logged as pyfunc and registered.")
 
@@ -242,17 +219,13 @@ logger.info(f"Loss curve saved as artifact: {plot_path}")
 plt.close()
 
 # --- 7. 예측 및 결과 시각화 (선택 사항) ---
-# 예측 (스케일링 역변환)
 with torch.no_grad():
     predictions_scaled = model(X_test_tensor).cpu().numpy()
 predictions = scaler_y.inverse_transform(predictions_scaled)
 
-# 실제 값 (스케일링 역변환)
-y_test_original = scaler_y.inverse_transform(y_test_scaled)  # 수정된 부분
+y_test_original = scaler_y.inverse_transform(y_test_scaled)
 
-# 예측 결과 시각화 및 아티팩트 저장
 plt.figure(figsize=(10, 6))
-# ⭐ X_test_scaled가 1D가 아닐 경우 첫 번째 특성만 사용 ([:, 0] 추가)
 plt.scatter(
     scaler_X.inverse_transform(X_test_scaled)[:, 0],
     y_test_original,
