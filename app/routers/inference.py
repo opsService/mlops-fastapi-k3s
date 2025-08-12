@@ -22,6 +22,7 @@ from app.schemas.inference.requests_inference import (
 )
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from ulid import ULID
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -305,14 +306,12 @@ async def deploy_inference_task(
             detail=f"태스크 ID '{task_id}'가 이미 존재합니다.",
         )
 
-    # K8s 리소스 이름 생성 (Task ID의 일부 사용) - 사용자 정의 규칙 반영
-    # Task ID가 너무 길 경우 K8s 이름 길이 제한에 걸릴 수 있으므로 8자로 잘라 사용합니다.
-    # 바꿔야함
-    safe_task_id_part = task_id.replace("_", "-").lower()[:8]
-    deployment_name = f"inference-deploy-{safe_task_id_part}"
-    service_name = f"inference-service-{safe_task_id_part}"
+    # K8s 리소스 이름에 고유 ID를 부여하여 중복 배포가 가능하도록 수정
+    unique_id = str(ULID()).lower()
+    deployment_name = f"inference-deploy-{unique_id}"
+    service_name = f"inference-service-{unique_id}"
     ingress_name = (
-        f"inference-ingress-{safe_task_id_part}" if request_body.ingressHost else None
+        f"inference-ingress-{unique_id}" if request_body.ingressHost else None
     )
 
     # 추론 API 엔드포인트 구성 (Ingress가 있다면 Ingress URL, 없으면 내부 ClusterIP)
