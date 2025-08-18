@@ -42,33 +42,39 @@ class K8sOrchestrator:
         try:
             logger.info(f"학습 Job 생성 시작: {job_name} (Task ID: {task_id})")
 
+            # 기본 명령어 리스트 생성
+            command = [
+                "python3.11",
+                "script/train.py",
+                "--task-id", task_id,
+                "--experiment-name", request.experimentName,
+                "--initial-model-file-path", request.initialModelFilePath,
+                "--dataset-path", request.datasetPath,
+                "--handler-name", request.handlerName,
+                "--task-type", request.taskType,
+                # "--loss-function", request.lossFunction,
+                # "--optimizer-name", request.optimizerName,
+                "--num-epoch", str(request.hyperparameters.numEpoch),
+                "--learning-rate", str(request.hyperparameters.learningRate),
+                "--num-batch", str(request.hyperparameters.numBatch),
+                "--custom-model-name", request.customModelName,
+                "--mlflow-tracking-uri", settings.MLFLOW_TRACKING_URI,
+                "--mlflow-s3-endpoint-url", settings.MLFLOW_S3_ENDPOINT_URL,
+            ]
+
             # 1. Kubernetes Job 생성
-            k8s_client.create_job(
+            self.k8s_client.create_job(
                 job_name=job_name,
                 container_name=container_name,
                 image=request.trainerImage,
                 namespace=settings.K8S_NAMESPACE,
-                command=[
-                    "python3.11", # Changed from "python"
-                    request.trainScriptPath,
-                    "--task-id", task_id,
-                    "--experiment-name", request.experimentName,
-                    "--initial-model-id", request.initialModelId,
-                    "--initial-model-file-path", request.initialModelFilePath,
-                    "--dataset-path", request.datasetPath,
-                    "--num-epoch", str(request.hyperparameters.numEpoch),
-                    "--learning-rate", str(request.hyperparameters.learningRate),
-                    "--num-batch", str(request.hyperparameters.numBatch),
-                    "--custom-model-name", request.customModelName,
-                    "--user-id", request.userId,
-                    "--mlflow-tracking-uri", settings.MLFLOW_TRACKING_URI,
-                    "--mlflow-s3-endpoint-url", settings.MLFLOW_S3_ENDPOINT_URL,
-                ],
+                command=command,
                 env_vars={
                     "AWS_ACCESS_KEY_ID": settings.AWS_ACCESS_KEY_ID,
                     "AWS_SECRET_ACCESS_KEY": settings.AWS_SECRET_ACCESS_KEY,
-                    "INTERNAL_API_KEY": settings.INTERNAL_API_KEY, # Added this line
+                    "INTERNAL_API_KEY": settings.INTERNAL_API_KEY,
                 },
+                resources=request.resources.model_dump() if request.resources else None,
                 volume_name=volume_name,
                 pvc_name=pvc_name,
                 use_gpu=request.useGpu,
@@ -230,28 +236,30 @@ class K8sOrchestrator:
         try:
             logger.info(f"추론 서버 배포 시작: {deployment_name} (Task ID: {task_id})")
 
+            # 리소스 추출
+            resources_requests = None
+            resources_limits = None
+            if request.resources:
+                resources_requests = request.resources.requests
+                resources_limits = request.resources.limits
+
             # 1. Deployment 생성
-            k8s_client.create_deployment(
+            self.k8s_client.create_inference_deployment(
                 deployment_name=deployment_name,
-                container_name="inference-server-container", # 컨테이너 이름 고정
                 image=request.inferenceImage,
-                namespace=settings.K8S_NAMESPACE,
-                model_uri=f"runs:/{request.mlflowRunId}/ml_model" if request.mlflowRunId else request.modelFilePath,
-                # 추론 서버에 MLflow Tracking URI와 S3 Endpoint URL도 전달하여 모델 로딩에 사용
-                env_vars={
-                    "MLFLOW_TRACKING_URI": settings.MLFLOW_TRACKING_URI,
-                    "MLFLOW_S3_ENDPOINT_URL": settings.MLFLOW_S3_ENDPOINT_URL,
-                    "AWS_ACCESS_KEY_ID": settings.AWS_ACCESS_KEY_ID,
-                    "AWS_SECRET_ACCESS_KEY": settings.AWS_SECRET_ACCESS_KEY,
-                },
+                mlflow_run_id=request.mlflowRunId,
+                model_file_path=request.modelFilePath,
+                resources_requests=resources_requests,
+                resources_limits=resources_limits,
                 use_gpu=request.useGpu,
+                ingress_host=request.ingressHost,
+                ingress_path=request.ingressPath
             )
 
             # 2. Service 생성
-            k8s_client.create_service(
+            self.k8s_client.create_inference_service(
                 service_name=service_name,
                 deployment_name=deployment_name,
-                namespace=settings.K8S_NAMESPACE,
                 port=8000, # 추론 서버의 노출 포트 (Flask Gunicorn 기본 포트)
             )
             
@@ -262,13 +270,12 @@ class K8sOrchestrator:
 
             # 3. Ingress 생성 (선택 사항)
             if request.ingressHost and request.ingressPath:
-                k8s_client.create_ingress(
+                self.k8s_client.create_inference_ingress(
                     ingress_name=ingress_name,
                     host=request.ingressHost,
                     path=request.ingressPath,
                     service_name=service_name,
                     service_port=8000, # Ingress가 바라볼 서비스 포트
-                    namespace=settings.K8S_NAMESPACE
                 )
                 active_ml_tasks[task_id]["ingress_name"] = ingress_name
                 logger.info(f"Ingress {ingress_name} 생성 완료.")

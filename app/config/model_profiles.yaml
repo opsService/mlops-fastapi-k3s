@@ -1,0 +1,37 @@
+resnet18_classification:
+  handlerName: "image_classification_handler"
+  taskType: "classification"
+  trainerImage: "localhost:5002/heedong/mlflow-trainer-gpu:latest"
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+      nvidia.com/gpu: "1"
+
+tabular_regression:
+  handlerName: "tabular_regression_handler"
+  taskType: "regression"
+  trainerImage: "localhost:5002/heedong/mlflow-trainer-cpu:latest"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+
+text_classification:
+  handlerName: "text_classification_handler"
+  taskType: "classification"
+  trainerImage: "localhost:5002/heedong/mlflow-trainer-gpu:latest"
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+      nvidia.com/gpu: "1"

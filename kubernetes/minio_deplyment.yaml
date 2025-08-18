@@ -62,4 +62,4 @@ spec:
       protocol: TCP
       port: 9001
       targetPort: 9001
-  type: ClusterIP # 클러스터 내부에서만 접근 가능하도록 ClusterIP 타입 사용
+  type: NodePort # 클러스터 내부에서만 접근 가능하도록 ClusterIP 타입 사용

@@ -101,24 +101,118 @@ class K8sClient:
             ),
         ]
 
+    def create_job(
+        self,
+        job_name: str,
+        container_name: str,
+        image: str,
+        namespace: str,
+        command: tp.List[str],
+        env_vars: tp.Dict[str, str],
+        volume_name: str,
+        pvc_name: str,
+        resources: tp.Optional[tp.Dict[str, tp.Any]] = None,
+        use_gpu: bool = False,
+    ):
+        """
+        오케스트레이터의 요구사항에 맞춘 범용 Kubernetes Job 생성 함수.
+        """
+        logger.info(f"Kubernetes Job 생성 시도: {job_name} in namespace {namespace}")
+
+        # 기본 환경 변수와 추가 환경 변수 결합
+        container_env = self._get_base_env_vars()
+        if env_vars:
+            for key, value in env_vars.items():
+                container_env.append(client.V1EnvVar(name=key, value=value))
+
+        # 리소스 설정
+        resources_spec = resources or {}
+        resource_req = resources_spec.get("requests", {"cpu": "1", "memory": "2Gi"})
+        resource_lim = resources_spec.get("limits", {"cpu": "2", "memory": "4Gi"})
+
+        if use_gpu:
+            # GPU 사용 시 리소스 제한 추가
+            resource_lim["nvidia.com/gpu"] = "1"
+
+        # 볼륨 및 볼륨 마운트 설정
+        volume = client.V1Volume(
+            name=volume_name,
+            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=pvc_name),
+        )
+        volume_mount = client.V1VolumeMount(name=volume_name, mount_path="/mnt/data")
+
+        # 컨테이너 정의
+        container = client.V1Container(
+            name=container_name,
+            image=image,
+            image_pull_policy="IfNotPresent",
+            command=command,
+            env=container_env,
+            resources=client.V1ResourceRequirements(
+                requests=resource_req,
+                limits=resource_lim,
+            ),
+            volume_mounts=[volume_mount],
+        )
+
+        # Pod Spec 정의
+        pod_spec = client.V1PodSpec(
+            restart_policy="OnFailure",
+            containers=[container],
+            volumes=[volume],
+        )
+        if use_gpu:
+            pod_spec.runtime_class_name = "nvidia"
+
+        # Job Template 및 Spec 정의
+        template = client.V1PodTemplateSpec(
+            metadata=client.V1ObjectMeta(labels={"app": job_name}),
+            spec=pod_spec,
+        )
+        spec = client.V1JobSpec(
+            template=template,
+            backoff_limit=1,
+            ttl_seconds_after_finished=300
+        )
+
+        # Job 객체 생성
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(name=job_name, namespace=namespace),
+            spec=spec,
+        )
+
+        try:
+            api_response = self.batch_v1.create_namespaced_job(
+                body=job, namespace=namespace
+            )
+            logger.info(f"Kubernetes Job '{job_name}' 생성 성공.")
+            return api_response
+        except client.ApiException as e:
+            logger.error(
+                f"Kubernetes Job '{job_name}' 생성 오류: {e.body}", exc_info=True
+            )
+            raise Exception(f"K8s API 오류 Job 생성: {e.reason} - {e.body}")
+
     def create_train_job(
         self,
         job_name: str,
         image: str,
-        train_script_path: str,  # 빼야할지도
         mlflow_run_id: str,
         initial_model_path: tp.Optional[str] = None,
         dataset_path: tp.Optional[str] = None,
-        hyperparameters: tp.Optional[tp.Dict[str, str]] = None,
-        resources_requests: tp.Optional[tp.Dict[str, str]] = None,
-        resources_limits: tp.Optional[tp.Dict[str, str]] = None,
+        hyperparameters: tp.Optional[tp.Dict[str, tp.Any]] = None,
+        resources: tp.Optional[tp.Dict[str, tp.Any]] = None,
         use_gpu: bool = False,
     ):
         """
         ML 학습을 위한 Kubernetes Job을 생성합니다.
+        컨테이너의 command/args를 지정하지 않아, 이미지의 ENTRYPOINT/CMD가 실행됩니다.
         """
         logger.info(f"Kubernetes 학습 Job 생성 시도: {job_name}")
 
+        # 컨테이너 환경 변수 설정
         container_env = self._get_base_env_vars()
         container_env.append(client.V1EnvVar(name="MLFLOW_RUN_ID", value=mlflow_run_id))
         if initial_model_path:
@@ -126,9 +220,7 @@ class K8sClient:
                 client.V1EnvVar(name="INITIAL_MODEL_PATH", value=initial_model_path)
             )
         if dataset_path:
-            container_env.append(
-                client.V1EnvVar(name="DATASET_PATH", value=dataset_path)
-            )
+            container_env.append(client.V1EnvVar(name="DATASET_PATH", value=dataset_path))
         if hyperparameters:
             container_env.append(
                 client.V1EnvVar(
@@ -136,19 +228,20 @@ class K8sClient:
                 )
             )
 
-        resource_req = resources_requests or {"cpu": "250m", "memory": "512Mi"}
-        resource_lim = resources_limits or {"cpu": "500m", "memory": "1Gi"}
+        # 리소스 설정 (요청된 값이 없으면 기본값 사용)
+        resources = resources or {}
+        resource_req = resources.get("requests", {"cpu": "250m", "memory": "512Mi"})
+        resource_lim = resources.get("limits", {"cpu": "500m", "memory": "1Gi"})
 
         if use_gpu:
             resource_req["nvidia.com/gpu"] = "1"
             resource_lim["nvidia.com/gpu"] = "1"
 
+        # 컨테이너 정의 (command 및 args 제거)
         container = client.V1Container(
             name="mlflow-trainer-container",
             image=image,
             image_pull_policy="IfNotPresent",
-            command=["python3.11"],
-            args=[train_script_path],
             env=container_env,
             resources=client.V1ResourceRequirements(
                 requests=resource_req,

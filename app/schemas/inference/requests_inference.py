@@ -1,6 +1,7 @@
 import typing as tp
 
 from pydantic import BaseModel, Field
+from app.schemas.common.models_base import ResourceSpec
 
 
 # 추론 Job 배포 요청 모델
@@ -26,6 +27,9 @@ class DeployInferenceRequest(BaseModel):
     )
     userId: str = Field(..., description="Task를 생성한 사용자 ID")
     useGpu: bool = False  # GPU 사용 여부
+    resources: tp.Optional[ResourceSpec] = Field(
+        None, description="추론 Job에 할당할 리소스 (CPU, Memory, GPU)"
+    )
     # 사용자의 요청에 따라 final-debug-v1 유지.
     # 단, 이 이미지는 반드시 상세 로깅이 포함된 inference_server.py로 빌드되어야 합니다.
     inferenceImage: str = (

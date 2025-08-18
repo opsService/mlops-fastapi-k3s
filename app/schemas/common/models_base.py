@@ -9,3 +9,9 @@ class ProgressMetrics(BaseModel):
     iteration: tp.Optional[int] = None
     loss: tp.Optional[float] = None
     metrics: tp.Dict[str, float] = Field(default_factory=dict)  # accuracy, f1_score 등
+
+
+# Kubernetes 리소스 요청/제한을 위한 모델
+class ResourceSpec(BaseModel):
+    requests: tp.Optional[tp.Dict[str, str]] = Field(None, description="요청 리소스. 예: {'cpu': '1', 'memory': '2Gi'}")
+    limits: tp.Optional[tp.Dict[str, str]] = Field(None, description="최대 제한 리소스. 예: {'cpu': '2', 'memory': '4Gi', 'nvidia.com/gpu': '1'}")
