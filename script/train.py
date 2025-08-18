@@ -7,11 +7,16 @@ import tempfile
 from pathlib import Path
 
 import boto3
+import cloudpickle
 import mlflow
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import yaml
 from botocore.exceptions import ClientError
+
+# Import wrapper class here to avoid circular dependency issues at top level
+from models.pyfunc_wrappers import ImageClassificationWrapper
 
 # 로거 설정
 logging.basicConfig(
@@ -45,10 +50,8 @@ def download_from_s3(s3_path: str, local_path: Path) -> Path:
 
 def load_handler_module(handler_name: str):
     """핸들러 이름을 기반으로 핸들러 모듈을 동적으로 로드합니다."""
-    # 컨테이너 내의 핸들러 기본 경로를 /app/models/ 로 가정합니다.
     handler_script_path = Path("/app/models/") / f"{handler_name}.py"
     if not handler_script_path.exists():
-        # 로컬 테스트를 위해 현재 파일 위치 기준으로 경로를 다시 확인합니다.
         handler_script_path = Path(__file__).parent.parent / "models" / f"{handler_name}.py"
         if not handler_script_path.exists():
             raise FileNotFoundError(f"Handler script not found for handler: {handler_name}")
@@ -89,9 +92,18 @@ def train_model(args):
             if args.initial_model_file_path and args.initial_model_file_path.lower() != "none":
                 download_from_s3(args.initial_model_file_path, local_model_path)
 
-            # 핸들러 로드 및 데이터/모델 생성 위임
             handler = load_handler_module(args.handler_name)
-            train_loader, val_loader, data_info = handler.create_data_loaders(local_data_path, args.num_batch, args=args)
+            
+            if args.handler_name == "image_classification_handler":
+                train_loader, val_loader, data_info, transforms = handler.create_data_loaders(
+                    local_data_path, args.num_batch, args=args
+                )
+            else:
+                train_loader, val_loader, data_info = handler.create_data_loaders(
+                    local_data_path, args.num_batch, args=args
+                )
+                transforms = None
+
             model = handler.create_model(args=args, **data_info)
 
             if local_model_path.exists():
@@ -108,7 +120,6 @@ def train_model(args):
             for epoch in range(args.num_epoch):
                 model.train()
                 for batch in train_loader:
-                    # 데이터와 레이블 분리 및 디바이스로 이동
                     if isinstance(batch, list):
                         inputs, labels = batch
                         labels = labels.to(device)
@@ -116,14 +127,13 @@ def train_model(args):
                             inputs = {k: v.to(device) for k, v in inputs.items()}
                         else:
                             inputs = inputs.to(device)
-                    else: # HuggingFace의 경우
+                    else:
                         labels = batch.pop("labels").to(device)
                         inputs = {k: v.to(device) for k, v in batch.items()}
 
                     if args.task_type == 'regression':
                         labels = labels.view(-1, 1).float()
 
-                    # Forward, backward, optimize
                     optimizer.zero_grad()
                     outputs = model(**inputs) if isinstance(inputs, dict) else model(inputs)
                     logits = getattr(outputs, 'logits', outputs)
@@ -131,7 +141,6 @@ def train_model(args):
                     loss.backward()
                     optimizer.step()
 
-                # 검증
                 model.eval()
                 val_loss, total_samples = 0, 0
                 eval_metrics = {}
@@ -165,7 +174,6 @@ def train_model(args):
 
                         total_samples += labels.size(0)
 
-                # 에포크 결과 로깅
                 avg_val_loss = val_loss / total_samples
                 log_metrics = {"val_loss": avg_val_loss}
                 log_str = f"Epoch {epoch+1}, Val Loss: {avg_val_loss:.4f}"
@@ -182,25 +190,57 @@ def train_model(args):
                 logger.info(log_str)
                 mlflow.log_metrics(log_metrics, step=epoch)
 
-            mlflow.pytorch.log_model(model, artifact_path="ml_model", registered_model_name=args.custom_model_name)
+            # Conditional model logging
+            if args.handler_name == "image_classification_handler":
+                logger.info("Logging as custom PyFunc model with ImageClassificationWrapper.")
+                with tempfile.TemporaryDirectory() as artifact_tmpdir:
+                    artifact_path = Path(artifact_tmpdir)
+                    weights_path = artifact_path / "model_weights.pth"
+                    torch.save(model.state_dict(), weights_path)
+
+                    transforms_path = artifact_path / "transforms.pkl"
+                    with open(transforms_path, "wb") as f:
+                        cloudpickle.dump(transforms, f)
+
+                    config_path = artifact_path / "wrapper_config.yaml"
+                    wrapper_config = {
+                        "handler_name": args.handler_name,
+                        "model_name": args.custom_model_name,
+                        "data_info": data_info,
+                        "class_names": data_info.get("class_names")
+                    }
+                    with open(config_path, "w") as f:
+                        yaml.dump(wrapper_config, f)
+
+                    artifacts ={
+                        "model_weights": str(weights_path),
+                        "transforms": str(transforms_path),
+                        "wrapper_config": str(config_path)
+                    }
+
+                    mlflow.pyfunc.log_model(
+                        artifact_path="ml_model",
+                        python_model=ImageClassificationWrapper(),
+                        artifacts=artifacts,
+                        registered_model_name=args.custom_model_name
+                    )
+            else:
+                logger.info("Logging as a standard PyTorch model.")
+                mlflow.pytorch.log_model(model, artifact_path="ml_model", registered_model_name=args.custom_model_name)
+            
             logger.info(f"Model '{args.custom_model_name}' logged to MLflow.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generic PyTorch Model Training Orchestrator")
     
-    # 필수 인자
     parser.add_argument("--task-id", type=str, required=True)
     parser.add_argument("--experiment-name", type=str, required=True)
     parser.add_argument("--dataset-path", type=str, required=True)
     parser.add_argument("--custom-model-name", type=str, required=True)
     parser.add_argument("--handler-name", type=str, required=True, help="Name of the handler script in the models directory.")
-
-    # 학습 파이프라인 인자
     parser.add_argument("--task-type", type=str, default="classification", choices=["classification", "regression"])
     # parser.add_argument("--loss-function", type=str, default="CrossEntropyLoss")
     # parser.add_argument("--optimizer-name", type=str, default="Adam")
-
-    # 모델 및 학습 관련 인자
     parser.add_argument("--initial-model-file-path", type=str, default=None)
     parser.add_argument("--num-epoch", type=int, default=10)
     parser.add_argument("--learning-rate", type=float, default=0.001)

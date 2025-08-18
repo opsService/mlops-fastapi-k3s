@@ -22,8 +22,13 @@ def create_data_loaders(data_path, batch_size, **kwargs):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
     
+    data_info = {
+        "num_classes": len(full_dataset.classes),
+        "class_names": full_dataset.classes
+    }
+    
     print(f"ImageFolder data loaders created. Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
-    return train_loader, val_loader, {"num_classes": len(full_dataset.classes)}
+    return train_loader, val_loader, data_info, transform
 
 def create_model(args, num_classes, **kwargs):
     """지정된 이름의 모델을 torchvision에서 로드하고, 필요한 경우 최종 레이어를 수정합니다."""

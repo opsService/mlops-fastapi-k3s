@@ -291,15 +291,23 @@ class K8sOrchestrator:
     def get_task_logs(self, task_id: str, tail_lines: int = 100) -> str:
         task_info = self._get_task_or_raise(task_id)
         
+        pods = []
         if task_info.get("k8s_resource_type") == "Job":
             resource_name = task_info.get("k8s_job_name")
             pods = self.k8s_client.get_pods_for_job(resource_name)
             if not pods:
                 return f"No pods found for job {resource_name}."
-        else: # Deployment
-            # This part needs implementation: get pods for a deployment
-            return "Log retrieval for deployments is not yet implemented."
+        
+        elif task_info.get("k8s_resource_type") == "Deployment":
+            resource_name = task_info.get("k8s_deployment_name")
+            pods = self.k8s_client.get_pods_for_deployment(resource_name)
+            if not pods:
+                return f"No pods found for deployment {resource_name}. It might be scaling up."
+        
+        else:
+            return f"Log retrieval is not supported for resource type '{task_info.get('k8s_resource_type')}'."
 
+        # Get logs from the most recently created pod
         pods.sort(key=lambda p: p.metadata.creation_timestamp, reverse=True)
         return self.k8s_client.get_pod_logs(pods[0].metadata.name, tail_lines=tail_lines)
 

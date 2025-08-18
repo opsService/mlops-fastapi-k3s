@@ -269,6 +269,25 @@ class K8sClient:
             )
             raise Exception(f"예상치 못한 오류 Pod 조회: {e}")
 
+    def get_pods_for_deployment(self, deployment_name: str) -> tp.List[client.V1Pod]:
+        """
+        특정 Deployment에 의해 생성된 Pod들을 조회합니다.
+        """
+        try:
+            label_selector = f"app={deployment_name}"
+            api_response = self.core_v1.list_namespaced_pod(
+                namespace=self.namespace, label_selector=label_selector
+            )
+            return api_response.items
+        except client.ApiException as e:
+            logger.error(f"Deployment {deployment_name}의 Pod 조회 오류: {e.body}", exc_info=True)
+            raise Exception(f"K8s API 오류 Pod 조회: {e.reason} - {e.body}")
+        except Exception as e:
+            logger.error(
+                f"Deployment {deployment_name}의 Pod 조회 중 예상치 못한 오류: {e}", exc_info=True
+            )
+            raise Exception(f"예상치 못한 오류 Pod 조회: {e}")
+
     def get_pod_logs(self, pod_name: str, tail_lines: tp.Optional[int] = None) -> str:
         """
         특정 Pod의 로그를 조회합니다.

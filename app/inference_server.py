@@ -1,4 +1,6 @@
 # mlops-fastapi-app/app/inference_server.py
+import base64
+import io
 import logging
 import os
 import sys
@@ -64,43 +66,54 @@ def health():
 def predict():
     """
     로드된 pyfunc 모델을 사용하여 예측을 수행합니다.
-    입력 데이터의 형식에 따라 테이블 또는 다른 유형으로 자동 처리합니다.
+    Content-Type에 따라 JSON 또는 form-data 입력을 자동 처리합니다.
     """
     if model is None:
         logger.error("예측 요청이 들어왔으나 모델이 로드되지 않았습니다.")
         return jsonify({"error": "Prediction requested but model is not loaded."}), 500
 
     try:
-        data = request.get_json()
+        content_type = request.headers.get("content-type", "").lower()
         input_data = None
 
-        # 입력 데이터 형식에 따른 분기 처리
-        if isinstance(data, dict) and "features" in data:
-            input_data = pd.DataFrame(data["features"])
-            logger.debug(f"Tabular input detected. DataFrame Shape: {input_data.shape}")
-        elif isinstance(data, dict) and "columns" in data and "data" in data:
-            input_data = pd.DataFrame(data['data'], columns=data['columns'])
-            logger.debug(f"Pandas split-orient input detected. DataFrame Shape: {input_data.shape}")
+        if "application/json" in content_type:
+            logger.debug("Received JSON request.")
+            json_data = request.get_json()
+            
+            # 테이블 데이터 형식 추론
+            if isinstance(json_data, dict) and "features" in json_data:
+                input_data = pd.DataFrame(json_data["features"])
+            elif isinstance(json_data, dict) and "columns" in json_data and "data" in json_data:
+                input_data = pd.DataFrame(json_data['data'], columns=json_data['columns'])
+            else:
+                # 기타 JSON 기반 입력 (e.g., 텍스트)
+                input_data = json_data
+
+        elif "multipart/form-data" in content_type:
+            logger.debug("Received multipart/form-data request.")
+            if 'input_file' not in request.files:
+                return jsonify({"error": "Missing 'input_file' in form-data"}), 400
+            
+            file = request.files['input_file']
+            # pyfunc wrapper가 일관된 입력을 받도록 이미지를 base64로 변환
+            img_bytes = file.read()
+            b64_string = base64.b64encode(img_bytes).decode('utf-8')
+            input_data = {"image": b64_string}
+
         else:
-            # 테이블 형식이 아닌 경우, 데이터를 그대로 전달 (e.g., 이미지, 텍스트)
-            input_data = data
-            logger.debug("Non-tabular input detected, passing data directly to model.")
+            return jsonify({"error": f"Unsupported Content-Type: {content_type}"}), 415
 
         # 모델의 predict 함수 호출
         prediction = model.predict(input_data)
         
-        # 결과가 numpy array일 경우 list로 변환
         if hasattr(prediction, 'tolist'):
             prediction_list = prediction.tolist()
         else:
             prediction_list = prediction
 
-        logger.info(f"Prediction successful. Returning {len(prediction_list)} results.")
+        logger.info(f"Prediction successful.")
         return jsonify({"prediction": prediction_list}), 200
         
-    except KeyError:
-        logger.error("Invalid input format: 'features' or other required key is missing.")
-        return jsonify({"error": "Invalid input format."} ), 400
     except Exception as e:
         logger.error(f"Prediction failed: {e}", exc_info=True)
         return jsonify({"error": f"Prediction failed: {e}"}), 500
