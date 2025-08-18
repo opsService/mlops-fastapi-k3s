@@ -2,6 +2,7 @@ resnet18_classification:
   handlerName: "image_classification_handler"
   taskType: "classification"
   trainerImage: "localhost:5002/heedong/mlflow-trainer-gpu:latest"
+  inferenceImage: "localhost:5002/heedong/mlflow-inference-server-gpu:latest"
   resources:
     requests:
       cpu: "1"
@@ -15,6 +16,7 @@ tabular_regression:
   handlerName: "tabular_regression_handler"
   taskType: "regression"
   trainerImage: "localhost:5002/heedong/mlflow-trainer-cpu:latest"
+  inferenceImage: "localhost:5002/heedong/mlflow-inference-server-cpu:latest"
   resources:
     requests:
       cpu: "500m"
@@ -27,6 +29,7 @@ text_classification:
   handlerName: "text_classification_handler"
   taskType: "classification"
   trainerImage: "localhost:5002/heedong/mlflow-trainer-gpu:latest"
+  inferenceImage: "localhost:5002/heedong/mlflow-inference-server-gpu:latest"
   resources:
     requests:
       cpu: "1"

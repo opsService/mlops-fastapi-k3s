@@ -195,93 +195,6 @@ class K8sClient:
             )
             raise Exception(f"K8s API 오류 Job 생성: {e.reason} - {e.body}")
 
-    def create_train_job(
-        self,
-        job_name: str,
-        image: str,
-        mlflow_run_id: str,
-        initial_model_path: tp.Optional[str] = None,
-        dataset_path: tp.Optional[str] = None,
-        hyperparameters: tp.Optional[tp.Dict[str, tp.Any]] = None,
-        resources: tp.Optional[tp.Dict[str, tp.Any]] = None,
-        use_gpu: bool = False,
-    ):
-        """
-        ML 학습을 위한 Kubernetes Job을 생성합니다.
-        컨테이너의 command/args를 지정하지 않아, 이미지의 ENTRYPOINT/CMD가 실행됩니다.
-        """
-        logger.info(f"Kubernetes 학습 Job 생성 시도: {job_name}")
-
-        # 컨테이너 환경 변수 설정
-        container_env = self._get_base_env_vars()
-        container_env.append(client.V1EnvVar(name="MLFLOW_RUN_ID", value=mlflow_run_id))
-        if initial_model_path:
-            container_env.append(
-                client.V1EnvVar(name="INITIAL_MODEL_PATH", value=initial_model_path)
-            )
-        if dataset_path:
-            container_env.append(client.V1EnvVar(name="DATASET_PATH", value=dataset_path))
-        if hyperparameters:
-            container_env.append(
-                client.V1EnvVar(
-                    name="HYPERPARAMETERS_JSON", value=json.dumps(hyperparameters)
-                )
-            )
-
-        # 리소스 설정 (요청된 값이 없으면 기본값 사용)
-        resources = resources or {}
-        resource_req = resources.get("requests", {"cpu": "250m", "memory": "512Mi"})
-        resource_lim = resources.get("limits", {"cpu": "500m", "memory": "1Gi"})
-
-        if use_gpu:
-            resource_req["nvidia.com/gpu"] = "1"
-            resource_lim["nvidia.com/gpu"] = "1"
-
-        # 컨테이너 정의 (command 및 args 제거)
-        container = client.V1Container(
-            name="mlflow-trainer-container",
-            image=image,
-            image_pull_policy="IfNotPresent",
-            env=container_env,
-            resources=client.V1ResourceRequirements(
-                requests=resource_req,
-                limits=resource_lim,
-            ),
-        )
-
-        pod_spec = client.V1PodSpec(restart_policy="OnFailure", containers=[container])
-        if use_gpu:
-            pod_spec.runtime_class_name = "nvidia"
-
-        template = client.V1PodTemplateSpec(spec=pod_spec)
-
-        spec = client.V1JobSpec(template=template, backoff_limit=3)
-
-        job = client.V1Job(
-            api_version="batch/v1",
-            kind="Job",
-            metadata=client.V1ObjectMeta(name=job_name),
-            spec=spec,
-        )
-
-        try:
-            api_response = self.batch_v1.create_namespaced_job(
-                body=job, namespace=self.namespace
-            )
-            logger.info(f"Kubernetes Job 생성 성공: {job_name}")
-            return api_response
-        except client.ApiException as e:
-            logger.error(
-                f"Kubernetes Job {job_name} 생성 오류: {e.body}", exc_info=True
-            )
-            raise Exception(f"K8s API 오류 Job 생성: {e.reason} - {e.body}")
-        except Exception as e:
-            logger.error(
-                f"Kubernetes Job {job_name} 생성 중 예상치 못한 오류: {e}",
-                exc_info=True,
-            )
-            raise Exception(f"예상치 못한 오류 Job 생성: {e}")
-
     def get_job_status(self, job_name: str):
         """
         특정 Kubernetes Job의 상태를 조회합니다.
@@ -659,6 +572,37 @@ class K8sClient:
                 exc_info=True,
             )
             raise Exception(f"예상치 못한 오류 Ingress 삭제: {e}")
+
+    def scale_deployment(self, deployment_name: str, replicas: int):
+        """
+        특정 Deployment의 replicas 수를 조절합니다.
+        """
+        logger.info(
+            f"Scaling deployment {deployment_name} to {replicas} replicas in namespace {self.namespace}"
+        )
+        scale_body = {
+            "spec": {"replicas": replicas}
+        }
+        try:
+            api_response = self.apps_v1.patch_namespaced_deployment_scale(
+                name=deployment_name,
+                namespace=self.namespace,
+                body=scale_body
+            )
+            logger.info(f"Successfully scaled deployment {deployment_name}.")
+            return api_response
+        except client.ApiException as e:
+            logger.error(
+                f"Failed to scale deployment {deployment_name}: {e.body}",
+                exc_info=True,
+            )
+            raise Exception(f"K8s API 오류 Deployment 스케일링: {e.reason} - {e.body}")
+        except Exception as e:
+            logger.error(
+                f"An unexpected error occurred while scaling deployment {deployment_name}: {e}",
+                exc_info=True,
+            )
+            raise Exception(f"예상치 못한 오류 Deployment 스케일링: {e}")
 
 
 # FastAPI 앱에서 사용할 K8sClient 인스턴스를 미리 생성

@@ -16,7 +16,6 @@ class UpdateTaskStatusCallback(BaseModel):
 # 모델 등록 콜백 모델 (기존 task_manager.py에서 이동)
 class RegisterModelCallback(BaseModel):
     taskId: str
-    userId: str
     modelName: str
     modelType: str  # "CUSTOM_TRAINED", "PRE_TRAINED" 등
     modelFilePath: str
