@@ -30,7 +30,8 @@ def create_model(input_dim: int, output_dim: int = 1, **kwargs) -> nn.Module:
 
 def create_data_loaders(data_path, batch_size, **kwargs):
     """CSV 파일을 읽어 회귀 또는 분류를 위한 데이터 로더를 생성합니다."""
-    df = pd.read_csv(data_path)
+    # df = pd.read_csv(data_path)
+    df = pd.read_json(data_path)
     
     # 마지막 열을 타겟으로, 나머지를 피처로 가정합니다.
     X = df.iloc[:, :-1].values

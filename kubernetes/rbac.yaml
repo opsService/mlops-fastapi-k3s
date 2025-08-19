@@ -6,14 +6,14 @@ metadata:
   namespace: default
 rules:
 - apiGroups: [""] # ""는 코어 API 그룹 (pods, services 등)을 의미합니다.
-  resources: ["pods", "pods/log", "services"] # services에 대한 권한 포함
+  resources: ["pods", "pods/log", "services", "persistentvolumeclaims"] # persistentvolumeclaims 권한 추가
   verbs: ["get", "list", "watch", "create", "delete"] # create, delete 권한 추가
 - apiGroups: ["batch"]
   resources: ["jobs", "jobs/status"]
   verbs: ["get", "list", "watch", "create", "delete"]
 - apiGroups: ["apps"]
-  resources: ["deployments", "deployments/status"]
-  verbs: ["get", "list", "watch", "create", "delete"]
+  resources: ["deployments", "deployments/scale", "deployments/status"] # scale 추가
+  verbs: ["get", "list", "watch", "create", "delete", "patch"] # patch 추가
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses"]
   verbs: ["get", "list", "watch", "create", "delete"]

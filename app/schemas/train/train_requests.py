@@ -15,7 +15,7 @@ class CreateTrainJobRequest(BaseModel):
     # Spring 서버에서 관리 및 제공하는 필드들
     taskId: str = Field(..., description="Spring Boot에서 생성한 Task ID")
     experimentName: str = Field(..., description="MLflow Experiment 이름")
-    initialModelFilePath: str = Field(..., description="초기 모델 파일의 S3/MinIO 경로")
+    initialModelFilePath: tp.Optional[str] = Field(None, description="초기 모델 파일의 S3/MinIO 경로")
     datasetPath: str = Field(..., description="학습 데이터셋의 S3/MinIO 경로")
     hyperparameters: Hyperparameters = Field(..., description="학습 하이퍼파라미터")
     
@@ -29,6 +29,11 @@ class CreateTrainJobRequest(BaseModel):
     trainerImage: tp.Optional[str] = Field(None, description="프로필의 기본 트레이너 이미지를 오버라이드")
 
     useGpu: bool = Field(False, description="GPU 사용 여부")
+
+    # --- 내부 로직에서 프로필을 통해 채워지는 필드들 ---
+    handlerName: tp.Optional[str] = None
+    taskType: tp.Optional[str] = None
+    resources: tp.Optional[ResourceSpec] = None
 
     class Config:
         json_schema_extra = {

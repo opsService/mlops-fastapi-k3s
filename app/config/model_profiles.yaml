@@ -1,8 +1,8 @@
 resnet18_classification:
   handlerName: "image_classification_handler"
   taskType: "classification"
-  trainerImage: "localhost:5002/heedong/mlflow-trainer-gpu:latest"
-  inferenceImage: "localhost:5002/heedong/mlflow-inference-server-gpu:latest"
+  trainerImage: "localhost:5002/heedong/mlflow-trainer:latest"
+  inferenceImage: "localhost:5002/heedong/mlflow-inference-server:latest"
   resources:
     requests:
       cpu: "1"
@@ -15,8 +15,8 @@ resnet18_classification:
 tabular_regression:
   handlerName: "tabular_regression_handler"
   taskType: "regression"
-  trainerImage: "localhost:5002/heedong/mlflow-trainer-cpu:latest"
-  inferenceImage: "localhost:5002/heedong/mlflow-inference-server-cpu:latest"
+  trainerImage: "localhost:5002/heedong/mlflow-trainer:latest"
+  inferenceImage: "localhost:5002/heedong/mlflow-inference-server:latest"
   resources:
     requests:
       cpu: "500m"
@@ -28,8 +28,8 @@ tabular_regression:
 text_classification:
   handlerName: "text_classification_handler"
   taskType: "classification"
-  trainerImage: "localhost:5002/heedong/mlflow-trainer-gpu:latest"
-  inferenceImage: "localhost:5002/heedong/mlflow-inference-server-gpu:latest"
+  trainerImage: "localhost:5002/heedong/mlflow-trainer:latest"
+  inferenceImage: "localhost:5002/heedong/mlflow-inference-server:latest"
   resources:
     requests:
       cpu: "1"

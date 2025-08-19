@@ -1,0 +1,12 @@
+# Unified Trainer Dockerfile for both CPU and GPU
+FROM localhost:5002/heedong/gpu-base:latest
+
+WORKDIR /app
+
+# Copy the training script and model handlers
+COPY ./script/train.py /app/train.py
+COPY ./models/ /app/models/
+
+# Set the command to run the training script
+# The script itself handles CPU/GPU device selection via --use-gpu flag
+CMD ["python3.11", "/app/train.py"]

@@ -2,18 +2,18 @@
 import asyncio
 import logging
 import typing as tp
-from ulid import ULID
 
 import mlflow
-from app.core.config import settings
-from app.core.k8s_client import k8s_client
 from app.core.callback_sender import (
     send_model_registration_callback,
     send_status_callback,
 )
+from app.core.config import settings
+from app.core.k8s_client import k8s_client
 from app.schemas.callbacks.models_callback import RegisterModelCallback
-from app.schemas.train.train_requests import CreateTrainJobRequest
 from app.schemas.inference.requests_inference import DeployInferenceRequest
+from app.schemas.train.train_requests import CreateTrainJobRequest
+from ulid import ULID
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,12 @@ class K8sOrchestrator:
     async def create_and_monitor_training_job(self, request: CreateTrainJobRequest):
         task_id = request.taskId
         job_name = f"train-job-{str(ULID()).lower()}"
-        pvc_name = f"train-pvc-{job_name}" # This might need adjustment if PVC is pre-created
+        pvc_name = f"train-pvc-{job_name}"
 
         try:
+            # 1. Job을 위한 PVC 생성
+            self.k8s_client.create_pvc(pvc_name=pvc_name, storage_size="10Gi")
+
             mlflow.set_experiment(request.experimentName)
             with mlflow.start_run(run_name=f"run-{task_id}") as run:
                 mlflow_run_id = run.info.run_id
@@ -44,12 +47,14 @@ class K8sOrchestrator:
             active_ml_tasks[task_id] = {
                 "k8s_resource_type": "Job",
                 "k8s_job_name": job_name,
+                "k8s_pvc_name": pvc_name, # PVC 이름 추적
                 "mlflow_run_id": mlflow_run_id,
                 "status": "PENDING",
                 "request": request.model_dump(),
             }
-            await send_status_callback(task_id, "PENDING", mlflow_run_id)
+            send_status_callback(task_id, "PENDING", mlflow_run_id)
 
+            # 2. Job 생성 (버그 수정 포함)
             command = self._build_train_command(task_id, mlflow_run_id, request)
             self.k8s_client.create_job(
                 job_name=job_name,
@@ -57,12 +62,14 @@ class K8sOrchestrator:
                 image=request.trainerImage,
                 namespace=settings.K8S_NAMESPACE,
                 command=command,
-                resources=request.resources.model_dump() if hasattr(request, 'resources') and request.resources else None,
+                env_vars={},  # 버그 수정
+                volume_name=f"train-volume-{job_name}", # 버그 수정
                 pvc_name=pvc_name,
+                resources=request.resources.model_dump() if hasattr(request, 'resources') and request.resources else None,
                 use_gpu=request.useGpu,
             )
             active_ml_tasks[task_id]["status"] = "RUNNING"
-            await send_status_callback(task_id, "RUNNING", mlflow_run_id)
+            send_status_callback(task_id, "RUNNING", mlflow_run_id)
             logger.info(f"Training Job {job_name} created. Starting monitoring.")
 
             job_status = await self._wait_for_job_completion(task_id, job_name, mlflow_run_id)
@@ -76,8 +83,9 @@ class K8sOrchestrator:
             logger.error(f"Critical error in training orchestration for task {task_id}: {e}", exc_info=True)
             if task_id in active_ml_tasks:
                 active_ml_tasks[task_id]["status"] = "FAILED"
-                await send_status_callback(task_id, "FAILED", errorMessage=str(e))
+                send_status_callback(task_id, "FAILED", error_message=str(e))
         finally:
+            # 3. Job 리소스 정리 (PVC 삭제 추가)
             await self._cleanup_training_resources(job_name, pvc_name)
             if task_id in active_ml_tasks and active_ml_tasks[task_id].get("k8s_resource_type") == "Job":
                 del active_ml_tasks[task_id]
@@ -86,7 +94,7 @@ class K8sOrchestrator:
     def _build_train_command(self, task_id: str, mlflow_run_id: str, request: CreateTrainJobRequest) -> tp.List[str]:
         # ... (implementation unchanged)
         return [
-            "python3.11", "script/train.py",
+            "python3.11", "/app/train.py",
             "--task-id", task_id,
             "--mlflow-run-id", mlflow_run_id,
             "--experiment-name", request.experimentName,
@@ -98,8 +106,6 @@ class K8sOrchestrator:
             "--learning-rate", str(request.hyperparameters.learningRate),
             "--num-batch", str(request.hyperparameters.numBatch),
             "--custom-model-name", request.customModelName,
-            "--mlflow-tracking-uri", settings.MLFLOW_TRACKING_URI,
-            "--mlflow-s3-endpoint-url", settings.MLFLOW_S3_ENDPOINT_URL,
         ]
 
     async def _wait_for_job_completion(self, task_id: str, job_name: str, mlflow_run_id: str) -> str:
@@ -121,7 +127,7 @@ class K8sOrchestrator:
         # ... (implementation unchanged)
         logger.info(f"Training Job for task {task_id} succeeded.")
         active_ml_tasks[task_id]["status"] = "SUCCEEDED"
-        await send_status_callback(task_id, "SUCCEEDED", mlflow_run_id)
+        send_status_callback(task_id, "SUCCEEDED", mlflow_run_id)
         
         run = self.mlflow_client.get_run(mlflow_run_id)
         model_uri = f"runs:/{mlflow_run_id}/ml_model"
@@ -135,21 +141,22 @@ class K8sOrchestrator:
             performanceMetrics=run.data.metrics,
             mlflowRunId=mlflow_run_id,
         )
-        await send_model_registration_callback(reg_payload)
+        send_model_registration_callback(reg_payload)
 
     async def _handle_failed_job(self, task_id: str, mlflow_run_id: str, job_name: str, job_status: str):
         # ... (implementation unchanged)
         logger.error(f"Training Job {job_name} failed with status: {job_status}")
         active_ml_tasks[task_id]["status"] = "FAILED"
         logs = self.get_task_logs(task_id, tail_lines=50)
-        await send_status_callback(task_id, "FAILED", mlflow_run_id, errorMessage=f"Job status: {job_status}", logSnippet=logs)
+        send_status_callback(task_id, "FAILED", mlflow_run_id, error_message=f"Job status: {job_status}", log_snippet=logs)
 
     async def _cleanup_training_resources(self, job_name: str, pvc_name: str):
         # ... (implementation unchanged)
         logger.info(f"Cleaning up resources for job {job_name}")
         try:
             self.k8s_client.delete_job(job_name)
-            # self.k8s_client.delete_pvc(pvc_name) # PVC deletion logic needs to be added to k8s_client
+            if pvc_name:
+                self.k8s_client.delete_pvc(pvc_name)
         except Exception as e:
             logger.error(f"Error during resource cleanup for job {job_name}: {e}", exc_info=True)
 
@@ -157,7 +164,7 @@ class K8sOrchestrator:
         task_info = self._get_task_or_raise(task_id, "Job")
         
         job_name = task_info.get("k8s_job_name")
-        pvc_name = f"train-pvc-{job_name}"
+        pvc_name = task_info.get("k8s_pvc_name") # pvc_name을 task_info에서 가져옴
         mlflow_run_id = task_info.get("mlflow_run_id")
 
         logger.info(f"Stopping training task {task_id} and cleaning up resources.")
@@ -166,7 +173,7 @@ class K8sOrchestrator:
             self.mlflow_client.set_terminated(mlflow_run_id, "KILLED")
         
         active_ml_tasks[task_id]["status"] = "STOPPED"
-        await send_status_callback(task_id, "STOPPED", mlflow_run_id)
+        send_status_callback(task_id, "STOPPED", mlflow_run_id)
         if task_id in active_ml_tasks:
             del active_ml_tasks[task_id]
 
@@ -188,7 +195,7 @@ class K8sOrchestrator:
                 "status": "PENDING",
                 "request": request.model_dump(),
             }
-            await send_status_callback(task_id, "PENDING")
+            send_status_callback(task_id, "PENDING")
 
             inference_image = profile.get("inferenceImage")
             if not inference_image:
@@ -208,22 +215,40 @@ class K8sOrchestrator:
                 self.k8s_client.create_inference_ingress(ingress_name, service_name, request.ingressHost, request.ingressPath)
 
             active_ml_tasks[task_id]["status"] = "RUNNING"
-            await send_status_callback(task_id, "RUNNING")
-            logger.info(f"Inference server {deployment_name} created. Starting monitoring.")
+            send_status_callback(task_id, "RUNNING")
+            logger.info(f"Inference server {deployment_name} created. Starting monitoring for readiness.")
 
-            await asyncio.sleep(30) # Placeholder for readiness check
+            deployment_ready = await self._wait_for_deployment_ready(deployment_name)
+
+            if not deployment_ready:
+                raise Exception(f"Deployment {deployment_name} did not become ready in time.")
 
             active_ml_tasks[task_id]["status"] = "SUCCEEDED"
             endpoint = self._get_inference_api_endpoint(service_name, ingress_name, request.ingressHost, request.ingressPath)
             active_ml_tasks[task_id]["inference_api_endpoint"] = endpoint
-            await send_status_callback(task_id, "SUCCEEDED", inferenceApiEndpoint=endpoint)
+            send_status_callback(task_id, "SUCCEEDED", inferenceApiEndpoint=endpoint)
 
         except Exception as e:
             logger.error(f"Critical error in inference orchestration for task {task_id}: {e}", exc_info=True)
             if task_id in active_ml_tasks:
                 active_ml_tasks[task_id]["status"] = "FAILED"
-                await send_status_callback(task_id, "FAILED", errorMessage=str(e))
+                send_status_callback(task_id, "FAILED", error_message=str(e))
             await self.delete_inference_deployment(task_id)
+
+    async def _wait_for_deployment_ready(self, deployment_name: str, timeout: int = 600, interval: int = 5) -> bool:
+        """
+        Deployment가 Ready 상태가 될 때까지 기다립니다.
+        """
+        elapsed_time = 0
+        while elapsed_time < timeout:
+            if self.k8s_client.is_deployment_ready(deployment_name):
+                logger.info(f"Deployment {deployment_name} is ready.")
+                return True
+            await asyncio.sleep(interval)
+            elapsed_time += interval
+            logger.info(f"Waiting for deployment {deployment_name} to be ready... ({elapsed_time}s / {timeout}s)")
+        logger.warning(f"Deployment {deployment_name} timed out waiting to become ready.")
+        return False
 
     async def pause_inference_deployment(self, task_id: str):
         """Scales down an inference deployment to 0 replicas."""
@@ -234,7 +259,7 @@ class K8sOrchestrator:
         self.k8s_client.scale_deployment(deployment_name, 0)
         
         task_info["status"] = "STOPPED"
-        await send_status_callback(task_id, "STOPPED")
+        send_status_callback(task_id, "STOPPED")
         logger.info(f"Inference deployment for task {task_id} paused.")
 
     async def resume_inference_deployment(self, task_id: str):
@@ -246,7 +271,7 @@ class K8sOrchestrator:
         self.k8s_client.scale_deployment(deployment_name, 1)
         
         task_info["status"] = "RUNNING" # Or should wait for readiness
-        await send_status_callback(task_id, "RUNNING")
+        send_status_callback(task_id, "RUNNING")
         logger.info(f"Inference deployment for task {task_id} resumed.")
 
     async def delete_inference_deployment(self, task_id: str):
@@ -261,7 +286,7 @@ class K8sOrchestrator:
         await self._cleanup_inference_resources(deployment_name, service_name, ingress_name)
         
         task_info["status"] = "DELETED"
-        await send_status_callback(task_id, "DELETED")
+        send_status_callback(task_id, "DELETED")
         if task_id in active_ml_tasks:
             del active_ml_tasks[task_id]
             logger.info(f"Inference task {task_id} removed from active tasks.")

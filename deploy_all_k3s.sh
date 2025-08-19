@@ -58,13 +58,13 @@ echo "Waiting for FastAPI pod to be ready..."
 kubectl wait --for=condition=Ready pod -l app=fastapi-mlops-api --timeout=300s -n $NAMESPACE || { echo "FastAPI pod not ready"; exit 1; }
 echo "FastAPI pod is running."
 
-# --- 8. MLflow Inference Server Deployment 및 Service 적용 (기본 추론 서버) ---
-echo "--- 8. Applying MLflow Inference Server deployment and service ---"
-kubectl apply -f kubernetes/mlflow-inference-server.yaml -n $NAMESPACE
+# # --- 8. MLflow Inference Server Deployment 및 Service 적용 (기본 추론 서버) ---
+# echo "--- 8. Applying MLflow Inference Server deployment and service ---"
+# kubectl apply -f kubernetes/mlflow-inference-server.yaml -n $NAMESPACE
 
-echo "Waiting for MLflow Inference Server pod to be ready..."
-kubectl wait --for=condition=Ready pod -l app=mlflow-inference-server --timeout=300s -n $NAMESPACE || { echo "MLflow Inference Server pod not ready"; exit 1; }
-echo "MLflow Inference Server pod is running."
+# echo "Waiting for MLflow Inference Server pod to be ready..."
+# kubectl wait --for=condition=Ready pod -l app=mlflow-inference-server --timeout=300s -n $NAMESPACE || { echo "MLflow Inference Server pod not ready"; exit 1; }
+# echo "MLflow Inference Server pod is running."
 
 echo "--- All Kubernetes components deployed successfully! ---"
 echo "Final check of all resources:"

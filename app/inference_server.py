@@ -17,32 +17,38 @@ app = Flask(__name__)
 
 # --- 전역 변수 ---
 model = None
-loaded_run_id = None
+loaded_model_source = None
 
 def load_model_on_startup():
     """
-    애플리케이션 시작 시 환경 변수에서 MLflow Run ID를 읽어 모델을 로드합니다.
+    애플리케이션 시작 시 환경 변수를 확인하여 모델을 로드합니다.
+    MLFLOW_INFERENCE_RUN_ID를 우선적으로 사용하고, 없으면 MODEL_FILE_PATH를 사용합니다.
     """
-    global model, loaded_run_id
+    global model, loaded_model_source
     
     run_id = os.getenv("MLFLOW_INFERENCE_RUN_ID")
-    if not run_id:
-        logger.critical("환경 변수 'MLFLOW_INFERENCE_RUN_ID'가 설정되지 않았습니다. 모델을 로드할 수 없습니다.")
+    model_file_path = os.getenv("MODEL_FILE_PATH")
+    model_uri = None
+
+    if run_id:
+        logger.info(f"MLflow Run ID를 사용하여 모델 로드를 시도합니다: {run_id}")
+        model_uri = f"runs:/{run_id}/ml_model"
+        loaded_model_source = f"run_id:{run_id}"
+    elif model_file_path:
+        logger.info(f"Model File Path를 사용하여 모델 로드를 시도합니다: {model_file_path}")
+        model_uri = model_file_path
+        loaded_model_source = f"file_path:{model_file_path}"
+    else:
+        logger.critical("모델 소스를 찾을 수 없습니다. 'MLFLOW_INFERENCE_RUN_ID' 또는 'MODEL_FILE_PATH' 환경 변수 중 하나를 설정해야 합니다.")
         sys.exit(1)
 
-    logger.info(f"서버 시작 시 모델 로드를 시도합니다. Run ID: {run_id}")
-    
     try:
-        model_uri = f"runs:/{run_id}/ml_model"
         logger.info(f"MLflow URI에서 모델 로딩 중: {model_uri}")
-
         model = mlflow.pyfunc.load_model(model_uri)
-        loaded_run_id = run_id
-        
-        logger.info(f"성공적으로 모델을 로드했습니다. Run ID: {run_id}")
+        logger.info(f"성공적으로 모델을 로드했습니다. 소스: {loaded_model_source}")
 
     except Exception as e:
-        logger.critical(f"치명적 오류: Run ID {run_id}의 모델을 로드하지 못했습니다: {e}", exc_info=True)
+        logger.critical(f"치명적 오류: URI '{model_uri}'에서 모델을 로드하지 못했습니다: {e}", exc_info=True)
         sys.exit(1)
 
 # --- 애플리케이션 시작 시 모델 로드 ---
@@ -54,9 +60,9 @@ def health():
     """
     헬스 체크 엔드포인트. 모델이 성공적으로 로드되었는지도 확인합니다.
     """
-    if model is not None and loaded_run_id is not None:
+    if model is not None and loaded_model_source is not None:
         logger.debug("Health check requested: Server is healthy and model is loaded.")
-        return jsonify({"status": "healthy", "run_id": loaded_run_id}), 200
+        return jsonify({"status": "healthy", "model_source": loaded_model_source}), 200
     else:
         logger.error("Health check requested: Server is unhealthy because model is not loaded.")
         return jsonify({"status": "unhealthy", "reason": "Model is not loaded"}), 503

@@ -77,9 +77,16 @@ def train_model(args):
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
     mlflow.set_experiment(args.experiment_name)
     
-    with mlflow.start_run(run_name=f"run-{args.task_id}") as run:
-        mlflow.log_params(vars(args))
+    # 오케스트레이터에 의해 시작된 기존 MLflow run에 연결
+    with mlflow.start_run(run_id=args.mlflow_run_id) as run:
+        # task_id는 이미 오케스트레이터에서 태그로 설정되었지만, 여기서 다시 설정하여 일관성 보장
         mlflow.set_tag("task_id", args.task_id)
+        
+        # 하이퍼파라미터 로깅 (오케스트레이터에서도 수행하지만, 여기서 실행된 실제 값들을 기록)
+        # mlflow_run_id는 로깅할 필요 없으므로 제외
+        params_to_log = vars(args).copy()
+        params_to_log.pop('mlflow_run_id', None)
+        mlflow.log_params(params_to_log)
 
         device = torch.device("cuda" if args.use_gpu and torch.cuda.is_available() else "cpu")
         logger.info(f"Using device: {device}")
@@ -234,6 +241,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generic PyTorch Model Training Orchestrator")
     
     parser.add_argument("--task-id", type=str, required=True)
+    parser.add_argument("--mlflow-run-id", type=str, required=True, help="MLflow Run ID to resume.")
     parser.add_argument("--experiment-name", type=str, required=True)
     parser.add_argument("--dataset-path", type=str, required=True)
     parser.add_argument("--custom-model-name", type=str, required=True)

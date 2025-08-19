@@ -1,10 +1,13 @@
 torch
 torchvision
 torchaudio
-mlflow
+mlflow>=2.10.0
 scikit-learn
-numpy
 pandas
+numpy
 matplotlib
 boto3
 python-json-logger
+joblib
+PyYAML
+cloudpickle

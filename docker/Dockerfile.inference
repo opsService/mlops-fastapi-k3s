@@ -7,10 +7,11 @@ WORKDIR /app
 # 베이스 이미지에 대부분의 요구사항이 설치되어 있으므로,
 # 여기서는 requirements_inference.txt를 복사하고 설치하는 부분을 제거합니다.
 # 만약 inference_server에만 필요한 추가적인 라이브러리가 있다면 여기에 추가합니다.
-# COPY ./requirements/requirements_inference.txt .
-# RUN pip install --no-cache-dir -r requirements_inference.txt
+COPY ./requirements/requirements_inference.txt .
+RUN pip install --no-cache-dir -r requirements_inference.txt
 
-COPY app /app/app
+COPY ./app /app/app
+COPY ./models /app/models
 
 # 서버 실행 명령
 # Flask 앱을 Gunicorn으로 실행하는 표준 방식

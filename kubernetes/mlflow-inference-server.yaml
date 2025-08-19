@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: inference-container
-        image: localhost:5002/heedong/mlflow-inference-server:final-debug-v1
+        image: localhost:5002/heedong/mlflow-inference-server:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000

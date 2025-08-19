@@ -21,20 +21,13 @@ WORKDIR /app
 
 # Upgrade pip and install common Python libraries for GPU-based ML training.
 # These are based on the project's requirements_gputrainer.txt.
+# This is a base image, so it's not intended to have a CMD. 
+# It's intended to be used as a base for other Dockerfiles.
+
+COPY ./requirements/requirements_trainer.txt /app/requirements.txt
+
 RUN python3.11 -m pip install --no-cache-dir --upgrade pip && \
-    python3.11 -m pip install --no-cache-dir \
-    # Install PyTorch with the specific CUDA 12.1 version first
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
-    # Install other common ML libraries
-    python3.11 -m pip install --no-cache-dir \
-    mlflow>=2.10.0 \
-    scikit-learn \
-    pandas \
-    numpy \
-    matplotlib \
-    boto3 \
-    python-json-logger \
-    joblib
+    python3.11 -m pip install --no-cache-dir -r /app/requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 
 # This is a base image, so it's not intended to have a CMD. 
 # It's intended to be used as a base for other Dockerfiles.

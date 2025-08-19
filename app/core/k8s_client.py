@@ -623,6 +623,81 @@ class K8sClient:
             )
             raise Exception(f"예상치 못한 오류 Deployment 스케일링: {e}")
 
+    def is_deployment_ready(self, deployment_name: str) -> bool:
+        """
+        특정 Deployment의 모든 Pod가 Ready 상태인지 확인합니다.
+        """
+        try:
+            status = self.apps_v1.read_namespaced_deployment_status(
+                name=deployment_name, namespace=self.namespace
+            ).status
+            
+            # status.replicas가 None일 수 있는 경우를 처리 (생성 초기)
+            total_replicas = status.replicas if status.replicas is not None else 0
+            # status.ready_replicas가 None일 수 있는 경우를 처리
+            ready_replicas = status.ready_replicas if status.ready_replicas is not None else 0
+            
+            logger.debug(f"Deployment {deployment_name} status: total_replicas={total_replicas}, ready_replicas={ready_replicas}")
+            
+            # Deployment가 원하는 replica 수에 도달했고, 그 replica들이 모두 ready 상태일 때 True 반환
+            return total_replicas > 0 and total_replicas == ready_replicas
+
+        except client.ApiException as e:
+            if e.status == 404:
+                logger.warning(f"Deployment {deployment_name}을 찾을 수 없어 상태를 확인할 수 없습니다.")
+                return False
+            logger.error(f"Deployment {deployment_name} 상태 확인 중 오류: {e.body}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"Deployment {deployment_name} 상태 확인 중 예상치 못한 오류: {e}", exc_info=True)
+            return False
+
+    def create_pvc(self, pvc_name: str, storage_size: str = "10Gi"):
+        """
+        학습 Job을 위한 PersistentVolumeClaim을 생성합니다.
+        """
+        logger.info(f"PVC 생성 시도: {pvc_name} (size: {storage_size})")
+        pvc_body = client.V1PersistentVolumeClaim(
+            api_version="v1",
+            kind="PersistentVolumeClaim",
+            metadata=client.V1ObjectMeta(name=pvc_name),
+            spec=client.V1PersistentVolumeClaimSpec(
+                access_modes=["ReadWriteOnce"],
+                resources=client.V1ResourceRequirements(
+                    requests={"storage": storage_size}
+                ),
+                # storage_class_name="your-storage-class" # 필요시 특정 스토리지 클래스 지정
+            ),
+        )
+        try:
+            self.core_v1.create_namespaced_persistent_volume_claim(
+                namespace=self.namespace, body=pvc_body
+            )
+            logger.info(f"PVC '{pvc_name}' 생성 성공.")
+        except client.ApiException as e:
+            if e.status == 409: # Already exists
+                logger.warning(f"PVC '{pvc_name}'가 이미 존재합니다.")
+            else:
+                logger.error(f"PVC '{pvc_name}' 생성 오류: {e.body}", exc_info=True)
+                raise Exception(f"K8s API 오류 PVC 생성: {e.reason} - {e.body}")
+
+    def delete_pvc(self, pvc_name: str):
+        """
+        사용한 PersistentVolumeClaim을 삭제합니다.
+        """
+        logger.info(f"PVC 삭제 시도: {pvc_name}")
+        try:
+            self.core_v1.delete_namespaced_persistent_volume_claim(
+                name=pvc_name, namespace=self.namespace
+            )
+            logger.info(f"PVC '{pvc_name}' 삭제 성공.")
+        except client.ApiException as e:
+            if e.status == 404:
+                logger.warning(f"삭제할 PVC '{pvc_name}'를 찾을 수 없습니다.")
+            else:
+                logger.error(f"PVC '{pvc_name}' 삭제 오류: {e.body}", exc_info=True)
+                raise Exception(f"K8s API 오류 PVC 삭제: {e.reason} - {e.body}")
+
 
 # FastAPI 앱에서 사용할 K8sClient 인스턴스를 미리 생성
 k8s_client = K8sClient()

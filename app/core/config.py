@@ -39,7 +39,7 @@ class Settings:
         "DEFAULT_TRAINER_IMAGE", "localhost:5002/heedong/mlflow-trainer:latest"
     )
     DEFAULT_INFERENCE_IMAGE: str = os.getenv(
-        "DEFAULT_INFERENCE_IMAGE", "localhost:5002/heedong/mlflow-inference-server:final-debug-v1"
+        "DEFAULT_INFERENCE_IMAGE", "localhost:5002/heedong/mlflow-inference-server:latest"
     )
 
     # 로깅 레벨 설정 추가 (logging_config.py에서 사용)
