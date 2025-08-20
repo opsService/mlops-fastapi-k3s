@@ -106,7 +106,7 @@ class K8sOrchestrator:
             "--learning-rate", str(request.hyperparameters.learningRate),
             "--num-batch", str(request.hyperparameters.numBatch),
             "--custom-model-name", request.customModelName,
-        ]
+        ] + (["--use-gpu"] if request.useGpu else [])
 
     async def _wait_for_job_completion(self, task_id: str, job_name: str, mlflow_run_id: str) -> str:
         # ... (implementation unchanged)
@@ -181,10 +181,15 @@ class K8sOrchestrator:
     async def deploy_and_monitor_inference_server(self, request: DeployInferenceRequest, profile: tp.Dict[str, tp.Any]):
         # ... (implementation mostly unchanged)
         task_id = request.taskId
-        unique_id = str(ULID()).lower()
-        deployment_name = f"inference-deploy-{unique_id}"
-        service_name = f"inference-service-{unique_id}"
-        ingress_name = f"inference-ingress-{unique_id}" if request.ingressHost else None
+        # Sanitize profile and modelId for use in K8s resource names
+        sanitized_profile = request.modelProfile.lower().replace("_", "-")
+        sanitized_model_id = request.modelId.lower().replace("_", "-")
+        
+        # Use a predictable name based on profile and modelId to prevent duplicates
+        base_name = f"inf-{sanitized_profile}-{sanitized_model_id}"
+        deployment_name = f"{base_name}"
+        service_name = f"{base_name}-svc"
+        ingress_name = f"{base_name}-ing" if request.ingressHost else None
 
         try:
             active_ml_tasks[task_id] = {
@@ -205,7 +210,6 @@ class K8sOrchestrator:
                 deployment_name=deployment_name,
                 image=inference_image,
                 mlflow_run_id=request.mlflowRunId,
-                model_file_path=request.modelFilePath,
                 resources_requests=profile.get("resources", {}).get("requests"),
                 resources_limits=profile.get("resources", {}).get("limits"),
                 use_gpu=request.useGpu,

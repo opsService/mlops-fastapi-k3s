@@ -7,11 +7,8 @@ class DeployInferenceRequest(BaseModel):
     """추론 태스크 배포 요청의 바디 형식을 정의합니다."""
 
     taskId: str = Field(..., description="Spring Boot에서 생성한 Task ID")
-    modelId: str = Field(..., description="사용자가 선택한 모델 ID")
-    modelFilePath: str = Field(..., description="모델 파일 저장 경로 (S3/MinIO)")
-    mlflowRunId: tp.Optional[str] = Field(
-        None, description="(선택 사항) 커스텀 학습 모델인 경우 MLflow Run ID"
-    )
+    modelId: str = Field(..., description="배포된 모델을 식별하기 위한 고유 ID")
+    mlflowRunId: str = Field(..., description="배포할 모델의 MLflow Run ID")
     modelProfile: str = Field(..., description="사용할 모델 프로필 이름 (예: resnet18_classification)")
     useGpu: bool = False
     ingressHost: tp.Optional[str] = None

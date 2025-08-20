@@ -112,9 +112,15 @@ def predict():
         # 모델의 predict 함수 호출
         prediction = model.predict(input_data)
         
-        if hasattr(prediction, 'tolist'):
+        # prediction 결과를 JSON으로 변환 가능한 형태로 처리
+        if isinstance(prediction, pd.DataFrame):
+            # DataFrame을 dictionary의 list로 변환 (e.g., [{'col1': val1, ...}, ...])
+            prediction_list = prediction.to_dict(orient="records")
+        elif hasattr(prediction, 'tolist'):
+            # numpy array 또는 pandas Series를 list로 변환
             prediction_list = prediction.tolist()
         else:
+            # 이미 list이거나 다른 기본 타입인 경우
             prediction_list = prediction
 
         logger.info(f"Prediction successful.")

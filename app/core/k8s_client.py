@@ -316,7 +316,6 @@ class K8sClient:
         deployment_name: str,
         image: str,
         mlflow_run_id: str,
-        model_file_path: tp.Optional[str] = None,
         replicas: int = 1,
         resources_requests: tp.Optional[tp.Dict[str, str]] = None,
         resources_limits: tp.Optional[tp.Dict[str, str]] = None,
@@ -330,10 +329,6 @@ class K8sClient:
         container_env.append(
             client.V1EnvVar(name="MLFLOW_INFERENCE_RUN_ID", value=mlflow_run_id)
         )
-        if model_file_path:
-            container_env.append(
-                client.V1EnvVar(name="MODEL_FILE_PATH", value=model_file_path)
-            )
 
         resource_req = resources_requests or {"cpu": "500m", "memory": "1Gi"}
         resource_lim = resources_limits or {"cpu": "1", "memory": "2Gi"}
