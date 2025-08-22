@@ -47,7 +47,8 @@ class ImageClassificationWrapper(mlflow.pyfunc.PythonModel):
         # Re-create model architecture using the handler
         class MockArgs:
             initial_model_file_path = None
-            modelName = self.config.get("model_name", "resnet18")
+            # TODO: 향후 API 스키마에 modelArchitecture 필드가 추가되면, 아래 코드는 config에서 해당 값을 읽어 사용하게 됩니다.
+            modelArchitecture = self.config.get("model_architecture", "resnet18")
 
         model = handler_module.create_model(args=MockArgs(), **self.config["data_info"])
         

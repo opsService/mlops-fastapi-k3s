@@ -22,6 +22,9 @@ class CreateTrainJobRequest(BaseModel):
     # 새롭게 추가된 프로필 필드
     modelProfile: str = Field(..., description="사용할 모델 프로필 이름 (예: resnet18_classification)")
 
+    # TODO: 향후 API에서 모델 아키텍처를 직접 선택하게 하려면 아래 주석을 해제하세요.
+    # modelArchitecture: str = Field("resnet18", description="torchvision.models에서 로드할 모델 아키텍처 이름")
+
     # 모델 관련 설정
     customModelName: str = Field(..., description="학습 완료 후 저장될 모델 이름")
     

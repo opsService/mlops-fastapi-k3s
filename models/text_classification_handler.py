@@ -1,24 +1,41 @@
+import datasets
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import datasets
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    DataCollatorWithPadding,
+)
 
 
 def create_data_loaders(data_path, batch_size, **kwargs):
-    """텍스트 파일을 읽어 NLP 분류를 위한 데이터 로더를 생성합니다."""
+    """표준 CSV 파일을 읽어 NLP 분류를 위한 데이터 로더를 생성합니다."""
     # 고정된 토크나이저 사용
     tokenizer_name = "distilbert-base-uncased"
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-    # 사용자가 요청한 대로 .txt 파일을 DataFrame으로 로드 (탭 분리 가정)
-    df = pd.read_csv(data_path, sep='\t', header=None, names=['text', 'label'])
+    # 탭으로 분리된 데이터 파일을 로드합니다. (헤더는 자동 추론)
+    df = pd.read_csv(data_path, sep='\t')
+
+    # 필수 컬럼 확인
+    if 'text' not in df.columns or 'label' not in df.columns:
+        raise ValueError("Data file must contain 'text' and 'label' columns in the header.")
+
+    # 토크나이저 오류 방지를 위한 데이터 정제
+    # NaN 값을 빈 문자열로 채우고, 숫자 등 다른 타입도 모두 문자열로 변환합니다.
+    df['text'] = df['text'].fillna('').astype(str)
+
+    # 학습에 필요한 컬럼만 선택
+    df = df[['text', 'label']]
+    
     raw_dataset = datasets.Dataset.from_pandas(df)
     
     def tokenize_function(examples):
-        return tokenizer(examples["text"], padding="max_length", truncation=True)
+        # padding은 DataCollator에서 동적으로 처리하므로 여기서는 제거합니다.
+        return tokenizer(examples["text"], truncation=True)
         
     tokenized_dataset = raw_dataset.map(tokenize_function, batched=True)
     tokenized_dataset = tokenized_dataset.remove_columns(["text"])

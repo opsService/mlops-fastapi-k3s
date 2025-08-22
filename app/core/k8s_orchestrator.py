@@ -110,7 +110,7 @@ class K8sOrchestrator:
 
     async def _wait_for_job_completion(self, task_id: str, job_name: str, mlflow_run_id: str) -> str:
         # ... (implementation unchanged)
-        timeout = 3600
+        timeout = 43200  # 12 hours
         interval = 10
         elapsed_time = 0
         while elapsed_time < timeout:

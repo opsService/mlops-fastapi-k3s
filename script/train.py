@@ -28,25 +28,50 @@ logger = logging.getLogger(__name__)
 
 
 def download_from_s3(s3_path: str, local_path: Path) -> Path:
-    """S3 경로의 파일 또는 디렉토리를 로컬 경로로 다운로드하고, 실제 파일 경로를 반환합니다."""
+    """S3 경로의 파일 또는 디렉토리를 로컬 경로로 재귀적으로 다운로드합니다."""
     if not s3_path.startswith("s3://"):
         raise ValueError("S3 path must start with 's3://'")
 
     s3_endpoint_url = os.getenv("MLFLOW_S3_ENDPOINT_URL")
     s3 = boto3.client("s3", endpoint_url=s3_endpoint_url)
     bucket_name, s3_key = s3_path.replace("s3://", "").split("/", 1)
-    
-    target_file_path = local_path / Path(s3_key).name
-    target_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        logger.info(f"Downloading from s3://{bucket_name}/{s3_key} to {target_file_path}...")
-        s3.download_file(bucket_name, s3_key, str(target_file_path))
-        logger.info("S3 download completed successfully.")
-        return target_file_path
-    except ClientError as e:
-        logger.error(f"Failed to download from S3: {e}")
-        raise
+    # If s3_key ends with '/', treat it as a directory
+    if s3_key.endswith('/'):
+        logger.info(f"Path is a directory. Downloading contents from s3://{bucket_name}/{s3_key} to {local_path}...")
+        paginator = s3.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_key)
+
+        download_root_path = local_path / Path(s3_key).name
+        download_root_path.mkdir(parents=True, exist_ok=True)
+
+        for page in pages:
+            if "Contents" in page:
+                for obj in page['Contents']:
+                    relative_path = obj['Key'].replace(s3_key, '', 1)
+                    if not relative_path:
+                        continue
+                    
+                    local_file_path = download_root_path / relative_path
+                    local_file_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    logger.debug(f"Downloading {obj['Key']} to {local_file_path}")
+                    s3.download_file(bucket_name, obj['Key'], str(local_file_path))
+        logger.info("S3 directory download completed successfully.")
+        return download_root_path
+    
+    # Otherwise, treat it as a single file
+    else:
+        target_file_path = local_path / Path(s3_key).name
+        target_file_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Path is a file. Downloading from s3://{bucket_name}/{s3_key} to {target_file_path}...")
+        try:
+            s3.download_file(bucket_name, s3_key, str(target_file_path))
+            logger.info("S3 file download completed successfully.")
+            return target_file_path
+        except ClientError as e:
+            logger.error(f"Failed to download file from S3: {e}")
+            raise
 
 def load_handler_module(handler_name: str):
     """핸들러 이름을 기반으로 핸들러 모듈을 동적으로 로드합니다."""
@@ -93,14 +118,18 @@ def train_model(args):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
+            logger.info("Downloading dataset...")
             local_data_path = download_from_s3(args.dataset_path, tmpdir_path)
+            logger.info(f"Dataset downloaded to {local_data_path}")
             local_model_path = tmpdir_path / "model.pt"
 
             if args.initial_model_file_path and args.initial_model_file_path.lower() != "none":
                 download_from_s3(args.initial_model_file_path, local_model_path)
 
+            logger.info(f"Loading handler: {args.handler_name}")
             handler = load_handler_module(args.handler_name)
             
+            logger.info("Creating data loaders...")
             if args.handler_name == "image_classification_handler":
                 train_loader, val_loader, data_info, transforms = handler.create_data_loaders(
                     local_data_path, args.num_batch, args=args
@@ -110,20 +139,26 @@ def train_model(args):
                     local_data_path, args.num_batch, args=args
                 )
                 transforms = None
+            logger.info("Data loaders created successfully.")
 
+            logger.info("Creating model...")
             model = handler.create_model(args=args, **data_info)
+            logger.info("Model created successfully.")
 
             if local_model_path.exists():
                 model.load_state_dict(torch.load(local_model_path, map_location=device))
                 logger.info(f"Loaded initial model weights from {local_model_path}")
 
+            logger.info(f"Moving model to device: {device}...")
             model.to(device)
-            # optimizer = get_optimizer(args.optimizer_name, model.parameters(), args.learning_rate)
-            # criterion = get_loss_function(args.loss_function)
+            logger.info("Model moved to device successfully.")
+
             optimizer = handler.create_optimizer(model, args.learning_rate)
             criterion = handler.create_loss_function()
+            logger.info("Optimizer and loss function created.")
 
             # 범용 학습/검증 루프
+            logger.info("Starting training loop...")
             for epoch in range(args.num_epoch):
                 model.train()
                 for batch in train_loader:
@@ -212,7 +247,11 @@ def train_model(args):
                     config_path = artifact_path / "wrapper_config.yaml"
                     wrapper_config = {
                         "handler_name": args.handler_name,
-                        "model_name": args.custom_model_name,
+                        # TODO: 향후 API 스키마에 modelArchitecture 필드가 추가되면 아래 코드로 대체해야 합니다.
+                        # "model_architecture": args.modelArchitecture,
+                        
+                        # 현재는 핸들러에 하드코딩된 아키텍처 이름을 사용합니다.
+                        "model_architecture": "resnet18",
                         "data_info": data_info,
                         "class_names": data_info.get("class_names")
                     }

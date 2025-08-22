@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
-from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader
 
 
 def create_data_loaders(data_path, batch_size, **kwargs):
@@ -32,7 +32,12 @@ def create_data_loaders(data_path, batch_size, **kwargs):
 
 def create_model(args, num_classes, **kwargs):
     """지정된 이름의 모델을 torchvision에서 로드하고, 필요한 경우 최종 레이어를 수정합니다."""
-    model_name = getattr(args, 'modelName', 'resnet18') # API 스키마 변경으로 modelName이 없어졌으므로 args에서 직접 가져오거나 기본값 사용
+    # TODO: 향후 다양한 모델 아키텍처를 지원하려면 아래 주석 처리된 코드를 활성화하고,
+    # API 스키마에 modelArchitecture 필드를 추가해야 합니다.
+    # model_name = args.modelArchitecture 
+    
+    # 현재는 resnet18로 아키텍처를 고정합니다.
+    model_name = 'resnet18'
     pretrained = not args.initial_model_file_path
     
     if not hasattr(torchvision.models, model_name):
@@ -51,8 +56,8 @@ def create_model(args, num_classes, **kwargs):
             num_ftrs = model.classifier[final_layer_index].in_features
             model.classifier[final_layer_index] = nn.Linear(num_ftrs, num_classes)
         else:
-             num_ftrs = model.classifier.in_features
-             model.classifier = nn.Linear(num_ftrs, num_classes)
+            num_ftrs = model.classifier.in_features
+            model.classifier = nn.Linear(num_ftrs, num_classes)
     else:
         raise TypeError(f"Could not find a final layer to modify for model {model_name}")
 
