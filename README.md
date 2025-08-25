@@ -84,15 +84,128 @@ FastAPI 서버는 원활한 동작을 위해 여러 환경 변수를 필요로 �
 
 ## 5. 설치 및 실행
 
-(내용 동일, 생략)
+### 사전 요구사항
+
+*   `kubectl`이 설치된 환경
+*   실행 중인 Kubernetes 클러스터 (예: k3s, Minikube, EKS, GKE)
+*   (선택) Ingress Controller (예: NGINX Ingress Controller)
+
+### 배포 절차
+
+1.  **Docker 이미지 빌드 및 푸시**
+    `docker/` 디렉토리의 Dockerfile들을 사용하여 각 서비스의 이미지를 빌드하고, 사용하는 컨테이너 레지스트리(예: Docker Hub, ECR, Harbor)에 푸시해야 합니다.
+    *   `Dockerfile.fastapi`
+    *   `Dockerfile.gpu-base`
+    *   `Dockerfile.inference`
+    *   `Dockerfile.trainer`
+
+    *YAML 파일들(`fastapi-mlops-api.yaml` 등)에 명시된 이미지 주소를 실제 푸시한 이미지 주소로 수정해야 합니다.*
+
+2.  **전체 서비스 배포**
+    프로젝트 루트의 스크립트를 사용하여 모든 쿠버네티스 리소스를 배포합니다.
+
+    ```bash
+    # 네임스페이스를 지정하여 배포 (예: mlops)
+    ./deploy_all_k3s.sh mlops
+
+    # 기본(default) 네임스페이스에 배포
+    ./deploy_all_k3s.sh
+    ```
+
+3.  **배포 상태 확인**
+    ```bash
+    ./monitor_all.sh mlops
+    ```
 
 ## 6. API 명세 및 사용법
 
-(내용 동일, 생략)
+### 6.1. API 엔드포인트 요약
+
+| Method | Endpoint | 설명 |
+| :--- | :--- | :--- |
+| `POST` | `/internal/api/v1/k8s/train/create-job` | 새로운 모델 학습 Job을 생성합니다. |
+| `GET` | `/internal/api/v1/k8s/train/{task_id}/status` | 특정 학습 Job의 상태를 조회합니다. |
+| `GET` | `/internal/api/v1/k8s/train/{task_id}/logs` | 특정 학습 Job의 로그를 조회합니다. |
+| `POST` | `/internal/api/v1/k8s/inference/deploy` | 학습된 모델을 추론 서버로 배포합니다. |
+| `POST` | `/internal/api/v1/k8s/inference/predict` | 배포된 모델에 예측을 요청합니다. (쿼리 파라미터로 `task_id` 필요) |
+| `GET` | `/internal/api/v1/k8s/inference/{task_id}/status` | 특정 배포 Task의 상태를 조회합니다. |
+| `GET` | `/internal/api/v1/k8s/inference/{task_id}/logs` | 특정 배포 서버의 로그를 조회합니다. |
+| `POST` | `/internal/api/v1/k8s/inference/{task_id}/stop` | 실행 중인 추론 서버를 일시 중지합니다. (Replicas=0) |
+| `POST` | `/internal/api/v1/k8s/inference/{task_id}/resume` | 중지된 추론 서버를 재개합니다. (Replicas=1) |
+| `DELETE`| `/internal/api/v1/k8s/inference/{task_id}` | 배포된 추론 서버를 영구 삭제합니다. |
+
+### 6.2. 사용 시나리오
+
+FastAPI 서버가 배포되면 `fastapi-mlops-api-service`를 통해 접근할 수 있습니다. (Port-forwarding 또는 Ingress 필요)
+
+```bash
+# Port-forwarding 예시
+kubectl port-forward svc/fastapi-mlops-api-service 8000:8000 -n mlops
+```
+이제 `http://localhost:8000/docs` 에서 자동 생성된 API 문서를 확인할 수 있습니다.
+
+#### 1단계: 모델 학습
+
+*   **Endpoint**: `POST /internal/api/v1/k8s/train/create-job`
+*   **Request Body 예시**:
+    ```json
+    {
+      "taskId": "train-reg-01",
+      "experimentName": "House Price Prediction",
+      "modelProfile": "tabular_regression",
+      "customModelName": "predictorHouseValue",
+      "initialModelFilePath": "None",
+      "datasetPath": "s3://datasets/house-prices.csv",
+      "trainerImage": "localhost:5002/mlflow-trainer:latest",
+      "useGpu": false,
+      "hyperparameters": {
+        "numEpoch": 100,
+        "learningRate": 0.001,
+        "numBatch": 32
+      }
+    }
+    ```
+
+#### 2단계: 모델 배포
+
+학습이 완료되면 MLflow UI에서 `runId`를 확인하여 모델을 배포합니다.
+
+*   **Endpoint**: `POST /internal/api/v1/k8s/inference/deploy`
+*   **Request Body 예시**:
+    ```json
+    {
+      "taskId": "deploy-reg-01",
+      "modelId": "predictor-house-v1",
+      "mlflowRunId": "90df8a7a263149d2bb86a71be7442611",
+      "modelProfile": "tabular_regression",
+      "useGpu": false
+    }
+    ```
+
+#### 3단계: 모델 추론 (예측)
+
+*   **Endpoint**: `POST /internal/api/v1/k8s/inference/predict?task_id={task_id}`
+*   **URL의 `{task_id}`**: 2단계 배포 시 사용했던 `taskId` (예: `deploy-reg-01`)를 입력합니다.
+*   **Request Body 예시**:
+    ```json
+    {
+      "userId": "user-1234",
+      "data": {
+        "features": [
+            [5.1, 3.5, 1.4, 0.2, 4.9, 3.0, 1.4, 0.2]
+        ]
+      }
+    }
+    ```
+    *   **중요**: `data` 객체의 구조는 모델이 기대하는 입력 형식에 정확히 맞춰야 합니다. 예를 들어, 테이블 모델은 `features` 키를, 텍스트 모델은 `text` 키를 기대할 수 있습니다.
 
 ## 7. 리소스 정리
 
-(내용 동일, 생략)
+배포된 모든 플랫폼 리소스를 삭제하려면 다음 스크립트를 사용합니다.
+
+```bash
+./clear_all_k3s.sh mlops
+```
 
 ## 8. 향후 개선 과제
 
