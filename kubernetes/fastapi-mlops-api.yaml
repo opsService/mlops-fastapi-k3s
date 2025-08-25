@@ -27,7 +27,7 @@ spec:
         imagePullPolicy: IfNotPresent # 개발 중에는 Always로 설정하여 항상 최신 이미지를 가져오도록 강제 (프로덕션에서는 IfNotPresent 또는 Never)
         ports:
         - containerPort: 8000 # FastAPI가 Uvicorn으로 실행될 포트
-        args: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"] # --port를 8000으로 명시 (containerPort와 일치)
+        args: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"] # --port를 8000으로 명시 (containerPort와 일치)
         env:
         # FastAPI 앱이 Kubernetes 클라이언트에서 사용할 네임스페이스
         - name: K8S_NAMESPACE

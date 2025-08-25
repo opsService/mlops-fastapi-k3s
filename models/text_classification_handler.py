@@ -1,8 +1,16 @@
+import tempfile
+from pathlib import Path
+
 import datasets
+import mlflow
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import yaml
+
+# Import wrapper class here to avoid circular dependency issues at top level
+from models.text_classification_wrapper import TextClassificationWrapper
 from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForSequenceClassification,
@@ -10,11 +18,15 @@ from transformers import (
     DataCollatorWithPadding,
 )
 
+# This module-level variable will cache the tokenizer name used by the data loader
+_cached_tokenizer_name = None
 
 def create_data_loaders(data_path, batch_size, **kwargs):
-    """표준 CSV 파일을 읽어 NLP 분류를 위한 데이터 로더를 생성합니다."""
+    """표준 CSV 파일을 읽어 NLP 분류를 위한 데이터 로더를 생성하고, 토크나이저 이름을 캐시합니다."""
+    global _cached_tokenizer_name
     # 고정된 토크나이저 사용
     tokenizer_name = "distilbert-base-uncased"
+    _cached_tokenizer_name = tokenizer_name
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
     # 탭으로 분리된 데이터 파일을 로드합니다. (헤더는 자동 추론)
@@ -25,7 +37,6 @@ def create_data_loaders(data_path, batch_size, **kwargs):
         raise ValueError("Data file must contain 'text' and 'label' columns in the header.")
 
     # 토크나이저 오류 방지를 위한 데이터 정제
-    # NaN 값을 빈 문자열로 채우고, 숫자 등 다른 타입도 모두 문자열로 변환합니다.
     df['text'] = df['text'].fillna('').astype(str)
 
     # 학습에 필요한 컬럼만 선택
@@ -34,7 +45,6 @@ def create_data_loaders(data_path, batch_size, **kwargs):
     raw_dataset = datasets.Dataset.from_pandas(df)
     
     def tokenize_function(examples):
-        # padding은 DataCollator에서 동적으로 처리하므로 여기서는 제거합니다.
         return tokenizer(examples["text"], truncation=True)
         
     tokenized_dataset = raw_dataset.map(tokenize_function, batched=True)
@@ -66,3 +76,31 @@ def create_optimizer(model: nn.Module, learning_rate: float):
 def create_loss_function():
     """Creates a Cross Entropy Loss function for classification."""
     return nn.CrossEntropyLoss()
+
+def log_model(model, args, **kwargs):
+    """Logs the model using the custom TextClassificationWrapper."""
+    print("Logging as custom PyFunc model with TextClassificationWrapper.")
+    with tempfile.TemporaryDirectory() as artifact_tmpdir:
+        artifact_path = Path(artifact_tmpdir)
+        model_path = artifact_path / "model"
+        config_path = artifact_path / "wrapper_config.yaml"
+
+        # Save the trained model
+        model.save_pretrained(model_path)
+        
+        # Save the wrapper config
+        wrapper_config = {"tokenizer_name": _cached_tokenizer_name}
+        with open(config_path, "w") as f:
+            yaml.dump(wrapper_config, f)
+
+        artifacts = {
+            "model_path": str(model_path),
+            "wrapper_config": str(config_path)
+            }
+
+        mlflow.pyfunc.log_model(
+            artifact_path="ml_model",
+            python_model=TextClassificationWrapper(),
+            artifacts=artifacts,
+            registered_model_name=args.custom_model_name,
+        )

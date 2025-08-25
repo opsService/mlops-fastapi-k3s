@@ -8,9 +8,7 @@
 
 ## 2. 시스템 아키텍처
 
-본 플랫폼은 다음과 같은 마이크로서비스 아키텍처로 구성됩니다.
-
-**핵심 구성 요소:**
+### 2.1. 구성 요소
 
 *   **FastAPI MLOps API (`fastapi-mlops-api`)**: 
     *   사용자 요청을 받는 중앙 API 게이트웨이입니다.
@@ -23,11 +21,43 @@
 *   **Inference Server (Kubernetes Deployment)**:
     *   학습된 모델을 서빙하는 API 서버입니다.
     *   MLflow에 등록된 모델을 불러와 실시간 추론 서비스를 제공하며, 독립적으로 실행됩니다.
-    *   필요에 따라 Scale-out/in이 가능합니다.
 *   **MLflow & Backends**:
     *   **MLflow Tracking Server**: 모든 학습 실험의 파라미터, 메트릭, 아티팩트를 추적하고 모델을 등록/관리하는 Model Registry 역할을 수행합니다.
     *   **PostgreSQL**: MLflow가 사용하는 메타데이터(실험 정보, 모델 정보 등)를 저장하는 데이터베이스입니다.
     *   **MinIO**: MLflow가 생성하는 아티팩트(모델 파일, 이미지 등)를 저장하는 S3 호환 오브젝트 스토리지입니다.
+
+### 2.2. 요청 흐름
+
+```mermaid
+flowchart TD
+    subgraph User
+        A[Client API Request]
+    end
+
+    subgraph MLOps Platform on Kubernetes
+        B[FastAPI MLOps API]
+        C{Request Type?}
+        
+        subgraph Training Flow
+            D[K8s Job: Trainer] --> E[MLflow Tracking Server]
+        end
+
+        subgraph Inference Flow
+            F[K8s Deployment: Inference Server]
+        end
+
+        subgraph Backends
+            E --> G[PostgreSQL]
+            E --> H[MinIO]
+        end
+    end
+
+    A --> B --> C
+    C -- Train Request --> D
+    C -- Deploy Request --> F
+    C -- Predict Request --> B
+    B -- Proxy --> F
+```
 
 ## 3. 주요 기능
 
@@ -38,147 +68,56 @@
 *   **모델 프로필 관리**: `model_profiles.yaml`을 통해 다양한 종류의 모델과 실행 환경(Docker 이미지, 리소스)을 유연하게 관리
 *   **GPU 지원**: GPU를 사용하는 학습 및 추론 작업을 지원
 
-## 4. 디렉토리 구조
+## 4. 주요 환경 변수 설정
 
-```
-.
-├── app/                # FastAPI 애플리케이션 소스 코드
-│   ├── core/           # K8s 클라이언트, 오케스트레이터 등 핵심 로직
-│   ├── routers/        # API 엔드포인트 (라우터)
-│   ├── schemas/        # Pydantic 데이터 모델 (요청/응답)
-│   └── main.py         # FastAPI 앱 진입점
-├── docker/             # 서비스별 Dockerfile
-├── kubernetes/         # K8s 리소스 배포용 YAML 파일
-├── models/             # 모델별 데이터 처리 및 학습 핸들러
-├── requirements/       # Python 의존성 목록
-├── script/             # 학습 스크립트 (train.py)
-└── README.md           # 프로젝트 설명서
-```
+FastAPI 서버는 원활한 동작을 위해 여러 환경 변수를 필요로 합니다. 이 변수들은 `kubernetes/fastapi-mlops-api.yaml` 파일에 정의되어 있습니다.
+
+| 환경 변수 | 설명 | 예시 값 |
+| :--- | :--- | :--- |
+| `K8S_NAMESPACE` | FastAPI 서버가 리소스를 생성하고 관리할 Kubernetes 네임스페이스 | `default` |
+| `MLFLOW_TRACKING_URI` | 연결할 MLflow 트래킹 서버의 주소 | `http://mlflow-tracking-service:5000` |
+| `MLFLOW_S3_ENDPOINT_URL` | MLflow 아티팩트 저장을 위한 MinIO 엔드포인트 | `http://minio-service:9000` |
+| `AWS_ACCESS_KEY_ID` | MinIO 접근 키 (K8s Secret에서 참조) | `minio-secret`의 `MINIO_ROOT_USER` |
+| `AWS_SECRET_ACCESS_KEY` | MinIO 비밀 키 (K8s Secret에서 참조) | `minio-secret`의 `MINIO_ROOT_PASSWORD` |
+| `SPRING_BOOT_CALLBACK_URL`| 작업 상태 변경 시 콜백을 보낼 외부 서버 주소 | `http://your-spring-boot-service:8080/...` |
+| `INTERNAL_API_KEY` | 내부 API를 보호하기 위한 API 키 (K8s Secret에서 참조) | `fastapi-internal-api-key-secret`의 `API_KEY` |
 
 ## 5. 설치 및 실행
 
-### 사전 요구사항
+(내용 동일, 생략)
 
-*   `kubectl`이 설치된 환경
-*   실행 중인 Kubernetes 클러스터 (예: k3s, Minikube, EKS, GKE)
-*   (선택) Ingress Controller (예: NGINX Ingress Controller)
+## 6. API 명세 및 사용법
 
-### 배포 절차
-
-1.  **Docker 이미지 빌드 및 푸시**
-    `docker/` 디렉토리의 Dockerfile들을 사용하여 각 서비스의 이미지를 빌드하고, 사용하는 컨테이너 레지스트리(예: Docker Hub, ECR, Harbor)에 푸시해야 합니다.
-    *   `Dockerfile.fastapi`
-    *   `Dockerfile.gpu-base`
-    *   `Dockerfile.inference`
-    *   `Dockerfile.trainer`
-
-    *YAML 파일들(`fastapi-mlops-api.yaml` 등)에 명시된 이미지 주소를 실제 푸시한 이미지 주소로 수정해야 합니다.*
-
-2.  **전체 서비스 배포**
-    프로젝트 루트의 스크립트를 사용하여 모든 쿠버네티스 리소스를 배포합니다.
-
-    ```bash
-    # 네임스페이스를 지정하여 배포 (예: mlops)
-    ./deploy_all_k3s.sh mlops
-
-    # 기본(default) 네임스페이스에 배포
-    ./deploy_all_k3s.sh
-    ```
-
-3.  **배포 상태 확인**
-    ```bash
-    ./monitor_all.sh mlops
-    ```
-
-## 6. API 사용법
-
-FastAPI 서버가 배포되면 `fastapi-mlops-api-service`를 통해 접근할 수 있습니다. (Port-forwarding 또는 Ingress 필요)
-
-```bash
-# Port-forwarding 예시
-kubectl port-forward svc/fastapi-mlops-api-service 8000:80 -n mlops
-```
-이제 `http://localhost:8000/docs` 에서 자동 생성된 API 문서를 확인할 수 있습니다.
-
---- 
-
-### 1단계: 모델 학습
-
-*   **Endpoint**: `POST /api/v1/train/jobs`
-*   **Description**: 새로운 모델 학습 Job을 생성합니다.
-*   **Request Body 예시**:
-    ```json
-    {
-      "taskId": "train-reg-01",
-      "experimentName": "House Price Prediction",
-      "modelProfile": "tabular_regression",
-      "customModelName": "predictorHouseValue",
-      "initialModelFilePath": "None",
-      "datasetPath": "s3://datasets/house-prices.csv",
-      "trainerImage": "localhost:5002/mlflow-trainer:latest",
-      "useGpu": false,
-      "hyperparameters": {
-        "numEpoch": 100,
-        "learningRate": 0.001,
-        "numBatch": 32
-      }
-    }
-    ```
-
---- 
-
-### 2단계: 모델 배포
-
-학습이 완료되면 MLflow UI에서 `runId`를 확인하여 모델을 배포합니다.
-
-*   **Endpoint**: `POST /api/v1/inference/deployments`
-*   **Description**: 학습된 모델을 추론 서버로 배포합니다.
-*   **Request Body 예시**:
-    ```json
-    {
-      "taskId": "deploy-reg-01",
-      "modelId": "predictor-house-v1",
-      "mlflowRunId": "90df8a7a263149d2bb86a71be7442611",
-      "modelProfile": "tabular_regression",
-      "useGpu": false
-    }
-    ```
-    *   `modelId`는 배포되는 서비스를 식별하는 고유한 이름입니다. 쿠버네티스 리소스 이름에 사용되므로 **소문자, 숫자, 하이픈(-)만 사용**해야 합니다.
-
---- 
-
-### 3단계: 모델 추론 (예측)
-
-모델 배포 시 사용했던 `taskId`를 사용하여 예측을 요청합니다.
-
-*   **Endpoint**: `POST /api/v1/inference/{task_id}/predict`
-*   **Description**: 배포된 모델에 예측을 요청합니다. FastAPI 백엔드가 요청을 받아 해당 추론 서버로 전달(proxy)합니다.
-*   **URL의 `{task_id}`**: 2단계 배포 시 사용했던 `taskId` (예: `deploy-reg-01`)를 입력합니다.
-*   **Request Body 예시**:
-    ```json
-    {
-      "userId": "user-1234",
-      "data": {
-      "features": [
-            [5.1, 3.5, 1.4, 0.2, 4.9, 3.0, 1.4, 0.2]
-        ]
-      }
-    }
-    ```
-    *   **중요**: 요청 Body는 모델이 기대하는 입력 형식에 정확히 맞춰야 합니다. 현재 `tabular_regression` 모델은 `features` 키와 2차원 배열을 기대합니다.
-
---- 
-
-### 기타 관리 API
-
-*   `GET /train/jobs/{task_id}/status`: 특정 학습 Job의 상태를 조회합니다.
-*   `GET /train/jobs/{task_id}/logs`: 특정 학습 Job의 로그를 조회합니다.
-*   `DELETE /inference/deployments/{task_id}`: 배포된 추론 서버를 삭제합니다.
+(내용 동일, 생략)
 
 ## 7. 리소스 정리
 
-배포된 모든 플랫폼 리소스를 삭제하려면 다음 스크립트를 사용합니다.
+(내용 동일, 생략)
 
-```bash
-./clear_all_k3s.sh mlops
-```
+## 8. 향후 개선 과제
+
+본 MVP 프로젝트를 실제 프로덕션 환경에서 운영하기 위해 다음과 같은 개선 과제를 고려할 수 있습니다.
+
+### 8.1. 상태 관리 및 배포 안정성
+
+*   **상태 관리**: 현재 실행 중인 Job과 Pod의 상태를 FastAPI 서버의 메모리(전역 변수)에서 관리하고 있습니다. 이 방식은 서버 재시작 시 모든 상태가 유실되고, API 서버를 여러 복제본(replica)으로 확장할 수 없는 심각한 문제를 야기합니다. **Redis** 또는 **PostgreSQL**과 같은 외부 공유 저장소를 도입하여 상태를 영속적으로 관리해야 합니다.
+*   **배포 멱등성**: 현재 추론 서버 배포 로직은 '생성(create)'만 시도하므로, 이미 존재하는 Deployment에 재배포 요청 시 `409 Conflict` 에러가 발생합니다. `k8s_client`가 리소스를 생성할 때 없으면 생성하고, 있으면 업데이트(patch)하는 **Create-or-Update** 로직을 구현하여 배포 안정성을 확보해야 합니다.
+
+### 8.2. 실시간 상태 알림
+
+*   **현재 방식**: 현재 API는 생성/삭제 등 장기 실행 작업을 요청받으면 즉시 `202 Accepted`를 반환하고, 클라이언트는 별도의 `/status` API를 주기적으로 호출(Polling)하여 작업 완료 여부를 확인해야 합니다.
+*   **개선 방향**: Polling 방식은 클라이언트와 서버 모두에게 비효율적일 수 있습니다. **WebSockets** 또는 **Server-Sent Events (SSE)**를 도입하여, 작업이 완료되거나 상태가 변경될 때 서버가 클라이언트에게 직접 알림을 푸시(Push)하는 방식으로 사용자 경험을 향상시킬 수 있습니다.
+
+### 8.3. 아키텍처 유연성 확보
+
+*   **추론 서버 전문화**: 현재 모든 모델 타입을 단일 `inference_server.py`로 처리하고 있어 로직이 복잡합니다. 모델 종류(tabular, text, image)에 따라 전문화된 추론 서버 Docker 이미지를 별도로 구축하고, `model_profiles.yaml`에서 선택하도록 하여 각 서버의 책임을 명확히 분리하는 것이 좋습니다.
+*   **학습 파이프라인 결합도 완화**: 현재 오케스트레이터가 `train.py`에 필요한 모든 인자를 커맨드 라인 인자로 직접 만들어 전달하여, 두 컴포넌트가 강하게 결합되어 있습니다. 학습 설정을 단일 JSON 파일로 관리하고 파일 경로만 전달하는 방식으로 변경하여 결합도를 낮추고 유연성을 높일 수 있습니다.
+
+### 8.4. 모니터링 및 로깅
+
+*   **중앙화된 로깅**: 현재 로그가 각 Pod에 흩어져 있어 추적이 어렵습니다. **Fluentd/Loki** 등으로 로그를 한 곳에 모으고 **Elasticsearch/Grafana**로 검색 및 시각화하는 중앙 로깅 시스템이 필요합니다.
+*   **모니터링 및 알림**: **Prometheus**와 **Grafana**를 사용하여 시스템의 핵심 성능 지표(API 응답 시간, 에러율, 리소스 사용량 등)를 모니터링하고, 이상 상황 발생 시 **Alertmanager**로 알림을 받는 체계를 구축해야 합니다.
+
+### 8.5. CI/CD 파이프라인 구축
+
+*   **GitHub Actions**, **Jenkins** 등의 도구를 사용하여 테스트, Docker 이미지 빌드, Kubernetes 리소스 배포 과정을 자동화하는 CI/CD 파이프라인을 구축하여 개발 및 운영 효율성을 높여야 합니다.

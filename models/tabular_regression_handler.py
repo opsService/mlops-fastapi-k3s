@@ -1,3 +1,4 @@
+import mlflow
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -58,3 +59,8 @@ def create_optimizer(model: nn.Module, learning_rate: float):
 def create_loss_function():
     """Creates a Mean Squared Error loss function for regression."""
     return nn.MSELoss()
+
+def log_model(model, args, **kwargs):
+    """Logs the model using the standard PyTorch flavor."""
+    print("Logging as a standard PyTorch model.")
+    mlflow.pytorch.log_model(model, artifact_path="ml_model", registered_model_name=args.custom_model_name)

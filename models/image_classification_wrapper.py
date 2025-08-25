@@ -1,35 +1,17 @@
 import base64
-import importlib.util
 import io
 import logging
 from pathlib import Path
 
 import mlflow
-import pandas as pd
 import torch
 import yaml
 import cloudpickle
 from PIL import Image
 
+from models.utils import _load_handler_from_context
+
 logger = logging.getLogger(__name__)
-
-
-def _load_handler_from_context(context):
-    """Helper to load a handler module from artifacts."""
-    config_path = context.artifacts["wrapper_config"]
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    handler_name = config["handler_name"]
-    handler_script_path = Path("/app/models/") / f"{handler_name}.py"
-    if not handler_script_path.exists():
-        handler_script_path = Path("models/") / f"{handler_name}.py"
-
-    spec = importlib.util.spec_from_file_location(handler_name, handler_script_path)
-    handler_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(handler_module)
-    return handler_module, config
-
 
 class ImageClassificationWrapper(mlflow.pyfunc.PythonModel):
     
@@ -47,7 +29,6 @@ class ImageClassificationWrapper(mlflow.pyfunc.PythonModel):
         # Re-create model architecture using the handler
         class MockArgs:
             initial_model_file_path = None
-            # TODO: 향후 API 스키마에 modelArchitecture 필드가 추가되면, 아래 코드는 config에서 해당 값을 읽어 사용하게 됩니다.
             modelArchitecture = self.config.get("model_architecture", "resnet18")
 
         model = handler_module.create_model(args=MockArgs(), **self.config["data_info"])

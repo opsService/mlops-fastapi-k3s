@@ -85,14 +85,18 @@ def predict():
         if "application/json" in content_type:
             logger.debug("Received JSON request.")
             json_data = request.get_json()
-            
+            logger.debug(f"Parsed json_data from request body: {json_data}")
+
             # 테이블 데이터 형식 추론
             if isinstance(json_data, dict) and "features" in json_data:
+                logger.debug(f"Handling 'features' key for tabular/regression data. Input: {json_data}")
                 input_data = pd.DataFrame(json_data["features"])
-            elif isinstance(json_data, dict) and "columns" in json_data and "data" in json_data:
-                input_data = pd.DataFrame(json_data['data'], columns=json_data['columns'])
+            elif isinstance(json_data, dict) and "text" in json_data:
+                logger.debug(f"Handling 'text' key for text classification. Input: {json_data}")
+                input_data = pd.DataFrame(json_data['text'], columns=['text'])
             else:
                 # 기타 JSON 기반 입력 (e.g., 텍스트)
+                logger.warning(f"No specific data format detected. Passing raw JSON to model. Input: {json_data}")
                 input_data = json_data
 
         elif "multipart/form-data" in content_type:

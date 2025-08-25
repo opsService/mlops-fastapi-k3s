@@ -15,8 +15,8 @@ import torch.optim as optim
 import yaml
 from botocore.exceptions import ClientError
 
-# Import wrapper class here to avoid circular dependency issues at top level
-from models.pyfunc_wrappers import ImageClassificationWrapper
+# Import helper functions from the new utils module
+from models.utils import download_from_s3, load_handler_module
 
 # 로거 설정
 logging.basicConfig(
@@ -25,71 +25,6 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
-
-
-def download_from_s3(s3_path: str, local_path: Path) -> Path:
-    """S3 경로의 파일 또는 디렉토리를 로컬 경로로 재귀적으로 다운로드합니다."""
-    if not s3_path.startswith("s3://"):
-        raise ValueError("S3 path must start with 's3://'")
-
-    s3_endpoint_url = os.getenv("MLFLOW_S3_ENDPOINT_URL")
-    s3 = boto3.client("s3", endpoint_url=s3_endpoint_url)
-    bucket_name, s3_key = s3_path.replace("s3://", "").split("/", 1)
-
-    # If s3_key ends with '/', treat it as a directory
-    if s3_key.endswith('/'):
-        logger.info(f"Path is a directory. Downloading contents from s3://{bucket_name}/{s3_key} to {local_path}...")
-        paginator = s3.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_key)
-
-        download_root_path = local_path / Path(s3_key).name
-        download_root_path.mkdir(parents=True, exist_ok=True)
-
-        for page in pages:
-            if "Contents" in page:
-                for obj in page['Contents']:
-                    relative_path = obj['Key'].replace(s3_key, '', 1)
-                    if not relative_path:
-                        continue
-                    
-                    local_file_path = download_root_path / relative_path
-                    local_file_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    logger.debug(f"Downloading {obj['Key']} to {local_file_path}")
-                    s3.download_file(bucket_name, obj['Key'], str(local_file_path))
-        logger.info("S3 directory download completed successfully.")
-        return download_root_path
-    
-    # Otherwise, treat it as a single file
-    else:
-        target_file_path = local_path / Path(s3_key).name
-        target_file_path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Path is a file. Downloading from s3://{bucket_name}/{s3_key} to {target_file_path}...")
-        try:
-            s3.download_file(bucket_name, s3_key, str(target_file_path))
-            logger.info("S3 file download completed successfully.")
-            return target_file_path
-        except ClientError as e:
-            logger.error(f"Failed to download file from S3: {e}")
-            raise
-
-def load_handler_module(handler_name: str):
-    """핸들러 이름을 기반으로 핸들러 모듈을 동적으로 로드합니다."""
-    handler_script_path = Path("/app/models/") / f"{handler_name}.py"
-    if not handler_script_path.exists():
-        handler_script_path = Path(__file__).parent.parent / "models" / f"{handler_name}.py"
-        if not handler_script_path.exists():
-            raise FileNotFoundError(f"Handler script not found for handler: {handler_name}")
-
-    logger.info(f"Loading handler module from: {handler_script_path}")
-    spec = importlib.util.spec_from_file_location(handler_name, handler_script_path)
-    handler_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(handler_module)
-    
-    assert hasattr(handler_module, 'create_data_loaders'), "Handler must have a 'create_data_loaders' function."
-    assert hasattr(handler_module, 'create_model'), "Handler must have a 'create_model' function."
-    
-    return handler_module
 
 # def get_optimizer(optimizer_name: str, parameters, lr: float):
 #     return getattr(optim, optimizer_name)(parameters, lr=lr)
@@ -130,15 +65,9 @@ def train_model(args):
             handler = load_handler_module(args.handler_name)
             
             logger.info("Creating data loaders...")
-            if args.handler_name == "image_classification_handler":
-                train_loader, val_loader, data_info, transforms = handler.create_data_loaders(
-                    local_data_path, args.num_batch, args=args
-                )
-            else:
-                train_loader, val_loader, data_info = handler.create_data_loaders(
-                    local_data_path, args.num_batch, args=args
-                )
-                transforms = None
+            train_loader, val_loader, data_info = handler.create_data_loaders(
+                local_data_path, args.num_batch, args=args
+            )
             logger.info("Data loaders created successfully.")
 
             logger.info("Creating model...")
@@ -232,47 +161,11 @@ def train_model(args):
                 logger.info(log_str)
                 mlflow.log_metrics(log_metrics, step=epoch)
 
-            # Conditional model logging
-            if args.handler_name == "image_classification_handler":
-                logger.info("Logging as custom PyFunc model with ImageClassificationWrapper.")
-                with tempfile.TemporaryDirectory() as artifact_tmpdir:
-                    artifact_path = Path(artifact_tmpdir)
-                    weights_path = artifact_path / "model_weights.pth"
-                    torch.save(model.state_dict(), weights_path)
-
-                    transforms_path = artifact_path / "transforms.pkl"
-                    with open(transforms_path, "wb") as f:
-                        cloudpickle.dump(transforms, f)
-
-                    config_path = artifact_path / "wrapper_config.yaml"
-                    wrapper_config = {
-                        "handler_name": args.handler_name,
-                        # TODO: 향후 API 스키마에 modelArchitecture 필드가 추가되면 아래 코드로 대체해야 합니다.
-                        # "model_architecture": args.modelArchitecture,
-                        
-                        # 현재는 핸들러에 하드코딩된 아키텍처 이름을 사용합니다.
-                        "model_architecture": "resnet18",
-                        "data_info": data_info,
-                        "class_names": data_info.get("class_names")
-                    }
-                    with open(config_path, "w") as f:
-                        yaml.dump(wrapper_config, f)
-
-                    artifacts ={
-                        "model_weights": str(weights_path),
-                        "transforms": str(transforms_path),
-                        "wrapper_config": str(config_path)
-                    }
-
-                    mlflow.pyfunc.log_model(
-                        artifact_path="ml_model",
-                        python_model=ImageClassificationWrapper(),
-                        artifacts=artifacts,
-                        registered_model_name=args.custom_model_name
-                    )
-            else:
-                logger.info("Logging as a standard PyTorch model.")
-                mlflow.pytorch.log_model(model, artifact_path="ml_model", registered_model_name=args.custom_model_name)
+            # Delegate model logging to the specific handler
+            logger.info(f"Logging model via handler: {args.handler_name}")
+            handler.log_model(model=model, args=args, data_info=data_info)
+            
+            logger.info(f"Model '{args.custom_model_name}' logged to MLflow.")
             
             logger.info(f"Model '{args.custom_model_name}' logged to MLflow.")
 
